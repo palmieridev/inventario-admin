@@ -6,7 +6,72 @@ El proyecto busca apoyar el registro de existencias durante la preparación y la
 
 ## Estado del proyecto
 
-El repositorio se encuentra en su etapa inicial. Todavía no contiene una aplicación ejecutable ni comandos de instalación o desarrollo. Las funciones y la arquitectura descritas a continuación corresponden al alcance propuesto y se implementarán por incrementos.
+El repositorio contiene la base ejecutable del monorepositorio: frontend en Astro, backend en TypeScript y Fastify, contratos compartidos y PostgreSQL para desarrollo local. Las funciones de inventario todavía no están implementadas; el backend incluye únicamente comprobaciones de salud y conexión a la base de datos.
+
+## Estructura
+
+```text
+inventario-admin/
+├── apps/
+│   ├── frontend/             # Astro: páginas, layouts, componentes y estilos
+│   └── backend/              # API Fastify y acceso a PostgreSQL
+├── packages/
+│   └── contracts/            # Tipos compartidos de solicitudes y respuestas
+├── infra/
+│   └── docker/               # Compose de PostgreSQL para desarrollo
+├── .env.example              # Configuración local de referencia
+├── .node-version             # Node.js 24 LTS
+├── package.json              # Comandos comunes y versión de pnpm
+├── pnpm-lock.yaml            # Versiones resueltas de las dependencias
+├── pnpm-workspace.yaml       # Espacios de trabajo
+└── tsconfig.base.json        # Opciones comunes de TypeScript
+```
+
+## Desarrollo local
+
+Se requieren Node.js 24 LTS o superior, pnpm 11.1.1 y Docker con Compose. La configuración también puede ejecutarse con un proveedor compatible de Compose para Podman.
+
+Desde la raíz del repositorio:
+
+```bash
+cp .env.example .env
+pnpm install
+pnpm db:up
+pnpm db:check
+pnpm dev
+```
+
+`db:check` permite comprobar cuándo PostgreSQL acepta conexiones; puede ser necesario repetirlo durante el primer arranque. Los valores del ejemplo son exclusivos para desarrollo local. El archivo `.env` permanece fuera de Git.
+
+| Servicio | Dirección predeterminada |
+| --- | --- |
+| Frontend | http://127.0.0.1:4321 |
+| Backend | http://127.0.0.1:3000 |
+| PostgreSQL | `127.0.0.1:5433` |
+
+El puerto 5433 evita ocupar el puerto habitual de otras bases locales. Puede modificarse con `POSTGRES_PORT` en `.env`; tanto Compose como el backend utilizan ese valor. El frontend no recibe las credenciales de la base.
+
+```bash
+curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3000/ready
+```
+
+`/health` confirma que la API responde. `/ready` realiza `SELECT 1` contra PostgreSQL y devuelve HTTP 503 si la base no está disponible.
+
+### Comandos del monorepositorio
+
+| Comando | Función |
+| --- | --- |
+| `pnpm dev` | Compila los contratos e inicia sus cambios en modo observación junto con frontend y backend. |
+| `pnpm build` | Compila los paquetes respetando sus dependencias internas. |
+| `pnpm typecheck` | Compila los contratos y revisa TypeScript y las plantillas Astro. |
+| `pnpm db:up` | Inicia PostgreSQL en segundo plano. |
+| `pnpm db:check` | Comprueba si PostgreSQL acepta conexiones. |
+| `pnpm db:logs` | Muestra los registros de PostgreSQL. |
+| `pnpm db:psql` | Abre la consola SQL dentro del contenedor. |
+| `pnpm db:down` | Detiene PostgreSQL y conserva el volumen de datos. |
+
+`Ctrl+C` detiene los procesos de `pnpm dev`; la base se detiene por separado con `pnpm db:down`. Los scripts no eliminan el volumen. Las variables de inicialización de PostgreSQL se aplican solo al crear una base nueva; cambiar `.env` no modifica las credenciales de un volumen existente. Se incluyen más detalles en [infra/docker/README.md](infra/docker/README.md).
 
 ## Alcance previsto
 
@@ -38,18 +103,18 @@ Las relaciones entre componentes y porciones, los avisos de existencias bajas y 
 - La interfaz distinguirá los cambios confirmados de los intentos pendientes o fallidos. Los reintentos no deben duplicar movimientos.
 - La respuesta pública excluye cantidades internas, movimientos, mermas y datos personales no autorizados, e identifica la última actualización confirmada.
 
-## Arquitectura propuesta
+## Arquitectura y responsabilidades
 
-Se prevé un monorepositorio con espacios de trabajo de pnpm y tres responsabilidades:
+El monorepositorio utiliza espacios de trabajo de pnpm. Los paquetes internos se enlazan mediante `workspace:*`:
 
 | Componente | Tecnología prevista | Responsabilidad |
 | --- | --- | --- |
 | Frontend | Astro y TypeScript | Formularios y consultas adaptables al teléfono. |
-| Backend | TypeScript | Validación, permisos por negocio, reglas de inventario y publicación autorizada. |
+| Backend | TypeScript y Fastify | Base de la API y conexión a PostgreSQL; posteriormente incorporará validación, permisos por negocio y reglas de inventario y publicación. |
 | Contratos compartidos | TypeScript | Tipos de solicitudes y respuestas entre frontend y backend. |
 | Persistencia | PostgreSQL | Existencias, movimientos, autoría, autorizaciones y transacciones. |
 
-La estructura de paquetes y los comandos se documentarán conforme se incorporen al repositorio. La operación sin conexión y el uso simultáneo de varios dispositivos permanecen pendientes de validación.
+Los contratos generan JavaScript ESM y declaraciones de tipos; frontend y backend los declaran como dependencia. Todavía no se incluyen tablas, migraciones ni datos iniciales. La operación sin conexión y el uso simultáneo de varios dispositivos permanecen pendientes de validación.
 
 ## Límites
 

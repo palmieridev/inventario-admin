@@ -1,0 +1,32 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #203c34;
+  background: #f6f7f1;
+  line-height: 1.6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 44rem;
+  margin: 10vh auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  color: #173f35;
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1.15;
+}
+
+.eyebrow {
+  color: #a93f22;
+  font-weight: 600;
+}

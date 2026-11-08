@@ -1,0 +1,21 @@
+{
+  "name": "inventario-admin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0 <12"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @inventario/contracts build && pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter @inventario/contracts build && pnpm -r typecheck",
+    "db:up": "docker compose --env-file .env -f infra/docker/compose.dev.yaml up -d postgres",
+    "db:down": "docker compose --env-file .env -f infra/docker/compose.dev.yaml down",
+    "db:logs": "docker compose --env-file .env -f infra/docker/compose.dev.yaml logs -f postgres",
+    "db:check": "docker compose --env-file .env -f infra/docker/compose.dev.yaml exec -T postgres sh -c 'pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"'",
+    "db:psql": "docker compose --env-file .env -f infra/docker/compose.dev.yaml exec postgres sh -c 'psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"'"
+  }
+}
