@@ -24,8 +24,8 @@ function connectionString() {
     throw new Error('POSTGRES_HOST debe contener solo el nombre o la dirección del servidor.');
   }
   url.pathname = '/' + encodeURIComponent(required('POSTGRES_DB'));
-  url.username = required('POSTGRES_USER');
-  url.password = required('POSTGRES_PASSWORD');
+  url.username = encodeURIComponent(required('POSTGRES_USER'));
+  url.password = encodeURIComponent(required('POSTGRES_PASSWORD'));
   url.searchParams.set('sslmode', 'disable');
   return url.toString();
 }
