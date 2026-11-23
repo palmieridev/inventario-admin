@@ -3,7 +3,11 @@ type CodigoInventario =
   | 'acceso_denegado'
   | 'no_encontrado'
   | 'catalogo_duplicado'
-  | 'unidad_con_historial';
+  | 'unidad_con_historial'
+  | 'elemento_inactivo'
+  | 'jornada_cerrada'
+  | 'apertura_existente'
+  | 'reintento_distinto';
 
 export class ErrorInventario extends Error {
   constructor(readonly codigo: CodigoInventario, mensaje: string) {

@@ -6,7 +6,7 @@ El proyecto busca apoyar el registro de existencias durante la preparación y la
 
 ## Estado del proyecto
 
-El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el esquema inicial de catálogo y conteo de apertura.
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el esquema y los servicios internos de catálogo y conteo de apertura. A06 los conectará con el acceso de cada cuenta.
 
 ## Estructura
 
@@ -66,6 +66,7 @@ curl http://127.0.0.1:3000/ready
 | `pnpm dev` | Compila los contratos e inicia sus cambios en modo observación junto con frontend y backend. |
 | `pnpm build` | Compila los paquetes respetando sus dependencias internas. |
 | `pnpm typecheck` | Compila los contratos y revisa TypeScript y las plantillas Astro. |
+| `pnpm test:inventario` | Comprueba el catálogo y el conteo inicial en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
 | `pnpm db:up` | Inicia PostgreSQL en segundo plano. |
 | `pnpm db:check` | Comprueba si PostgreSQL acepta conexiones. |
 | `pnpm db:migrate` | Aplica las migraciones SQL pendientes de `apps/backend/migrations/`. |
