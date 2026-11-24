@@ -1,0 +1,13 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+---
+
+<InventarioLayout title="Inventario">
+  <h1>Inventario</h1>
+</InventarioLayout>
+
+<script>
+  import { conSesion } from '../../lib/sesion';
+
+  void conSesion(() => {});
+</script>

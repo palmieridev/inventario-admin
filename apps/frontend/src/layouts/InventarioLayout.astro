@@ -1,0 +1,36 @@
+---
+import BaseLayout from './BaseLayout.astro';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<BaseLayout title={title + ' · Inventario Admin'}>
+  <main class="contenedor">
+    <p id="estado-sesion" role="status">Comprobando acceso…</p>
+    <button id="reintentar-carga" type="button" class="secundario" hidden>Volver a cargar</button>
+    <noscript>Activa JavaScript para consultar el inventario.</noscript>
+    <div id="contenido-interno" hidden>
+      <header class="barra">
+        <div class="identidad">
+          <a class="marca" href="/inventario/">Inventario Admin</a>
+          <span id="nombre-cuenta"></span>
+          <small id="rol-cuenta"></small>
+        </div>
+        <button id="cerrar-sesion" type="button" class="secundario">Cerrar sesión</button>
+      </header>
+      <p id="error-salida" class="error" role="alert" hidden></p>
+      <slot />
+    </div>
+  </main>
+</BaseLayout>
+
+<script>
+  import { recargarAlVolver } from '../lib/sesion';
+
+  recargarAlVolver();
+  document.querySelector('#reintentar-carga')?.addEventListener('click', () => location.reload());
+</script>
