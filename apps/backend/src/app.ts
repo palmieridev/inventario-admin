@@ -11,6 +11,7 @@ import { ErrorInventario } from './inventario/validacion.js';
 interface OpcionesApp {
   cookieSegura: boolean;
   logger?: boolean;
+  proxiesDeConfianza?: string[];
 }
 
 const estadosError: Record<ErrorInventario['codigo'], number> = {
@@ -29,8 +30,11 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   reintento_distinto: 409,
 };
 
-export function createApp(pool: Pool, { cookieSegura, logger = true }: OpcionesApp) {
-  const app = Fastify({ logger });
+export function createApp(pool: Pool, { cookieSegura, logger = true, proxiesDeConfianza = [] }: OpcionesApp) {
+  const app = Fastify({
+    logger,
+    trustProxy: proxiesDeConfianza.length > 0 ? proxiesDeConfianza : false,
+  });
 
   const registrarErrorPool = (error: Error) => {
     app.log.error(

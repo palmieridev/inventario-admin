@@ -2,7 +2,10 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
 
-const app = createApp(pool, { cookieSegura: config.cookieSegura });
+const app = createApp(pool, {
+  cookieSegura: config.cookieSegura,
+  proxiesDeConfianza: config.proxiesDeConfianza,
+});
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

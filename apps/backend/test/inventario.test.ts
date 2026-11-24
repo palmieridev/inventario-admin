@@ -123,6 +123,32 @@ test('limita los intentos de inicio de sesión por dirección', async () => {
   assert.equal((await intentar('192.0.2.11')).statusCode, 401);
 });
 
+test('separa el cupo de inicio de sesión de dos clientes que usan el mismo proxy de confianza', async () => {
+  const puesto = await negocio('Puesto con proxy');
+  const otro = await negocio('Puesto vecino con proxy');
+  await asignarCuenta(puesto.admin, 'admin.proxy');
+  await asignarCuenta(otro.staff, 'staff.proxy');
+  const ipProxy = '192.0.2.80';
+  const appProxy = createApp(new pg.Pool({ connectionString: conexion.toString() }), {
+    cookieSegura: true, logger: false, proxiesDeConfianza: [ipProxy],
+  });
+  try {
+    const iniciar = async (cuenta: string, ipCliente: string) => {
+      const respuesta = await appProxy.inject({
+        method: 'POST', url: '/api/sesion', remoteAddress: ipProxy,
+        headers: { 'x-forwarded-for': ipCliente }, payload: { cuenta, contrasena },
+      });
+      assert.equal(respuesta.statusCode, 200, respuesta.body);
+      return respuesta.headers['x-ratelimit-remaining'];
+    };
+    assert.equal(await iniciar('admin.proxy', '198.51.100.25'), '9');
+    assert.equal(await iniciar('admin.proxy', '198.51.100.25'), '8');
+    assert.equal(await iniciar('staff.proxy', '198.51.100.26'), '9');
+  } finally {
+    await appProxy.close();
+  }
+});
+
 test('restringe el alta y la revocación a admin del negocio e invalida todas las sesiones de staff', async () => {
   const puesto = await negocio('Puesto de accesos');
   const otro = await negocio('Puesto vecino de accesos');
