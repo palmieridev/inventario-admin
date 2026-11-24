@@ -15,6 +15,7 @@
     "test:inventario": "pnpm --filter @inventario/backend test:inventario",
     "db:migrate": "node --env-file-if-exists=.env apps/backend/scripts/migrate.mjs up",
     "db:migrate:status": "node --env-file-if-exists=.env apps/backend/scripts/migrate.mjs status",
+    "db:seed:dev": "pnpm --filter @inventario/backend db:seed:dev",
     "db:up": "docker compose --env-file .env -f infra/docker/compose.dev.yaml up -d postgres",
     "db:down": "docker compose --env-file .env -f infra/docker/compose.dev.yaml down",
     "db:logs": "docker compose --env-file .env -f infra/docker/compose.dev.yaml logs -f postgres",

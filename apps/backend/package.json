@@ -8,6 +8,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test:inventario": "node --import tsx --test test/inventario.test.ts",
+    "db:seed:dev": "tsx --env-file=../../.env src/dev/cargar-datos.ts",
     "start": "node --env-file=../../.env dist/server.js"
   },
   "dependencies": {
