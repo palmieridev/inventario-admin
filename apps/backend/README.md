@@ -1,6 +1,6 @@
 # Backend
 
-API en TypeScript y Fastify con sesiones, catálogo y conteo inicial respaldados por PostgreSQL.
+API en TypeScript y Fastify con sesiones, catálogo, conteo inicial y movimientos respaldados por PostgreSQL.
 
 Desde la raíz, después de crear `.env`, instalar las dependencias y aplicar las migraciones:
 
@@ -51,8 +51,45 @@ Las categorías son `insumo`, `preparado`, `bebida` y `empaque`. La cantidad de 
 
 La apertura se guarda junto con el movimiento, la fecha, el autor y el saldo. Un conteo nuevo exige una jornada iniciada y abierta. El saldo se conserva entre jornadas. Cambiar la unidad de un elemento con apertura o editar la definición de una unidad ya utilizada requiere un procedimiento posterior que preserve el historial.
 
+## Movimientos y producción (A08)
+
+Aplicar `pnpm db:migrate` antes de usar estas rutas. La migración 00003 agrega las operaciones y sus líneas sin alterar los conteos existentes. Los formularios corresponden a A10; A08 incorpora la API y las reglas de persistencia.
+
+- `POST /api/inventario/movimientos`: registra una operación completa o recupera su confirmación, con HTTP 200.
+- `GET /api/inventario/movimientos/:id`: recupera la operación y sus líneas dentro del negocio de la sesión. El listado y los filtros de historial pertenecen a una actividad posterior.
+
+Ambas rutas requieren sesión. `admin` y `staff` registran compras, tandas, salidas, consumos y mermas; solo `admin` registra ajustes. Cada solicitud incluye `jornadaId` y `claveReintento` (UUID), además de `observacion` opcional (hasta 500 caracteres). El servidor asigna una sola fecha `registradaEn` después de bloquear todos los elementos de la operación, la usa para actualizar sus saldos y la devuelve en ISO 8601 UTC; la pertenencia a una jornada no cambia al pasar medianoche. No se admiten capturas nuevas en jornadas futuras o cerradas.
+
+| `tipo` | Datos específicos | Efecto |
+| --- | --- | --- |
+| `compra` | `lineas` | Suma las cantidades declaradas. |
+| `tanda` | `insumos`, `productos` | Resta insumos y suma productos preparados en una transacción. `insumos: []` es válido cuando no se lleva su control; no se inventan rendimientos. |
+| `salida` | `lineas`, `motivo` | Resta cantidades agrupadas; admite motivos como venta, muestra o regalo. |
+| `consumo` | `lineas`, `motivo` | Resta el consumo declarado, por ejemplo del personal. |
+| `merma` | `lineas`, `motivo` | Resta cantidades con causa `deterioro`, `caducidad`, `dano_traslado`, `error_preparacion` u `otra`. Son opciones iniciales pendientes de validación con participantes. |
+| `ajuste` | `lineas`, `motivo` | Establece el conteo físico declarado; registra la variación sin sustituir movimientos anteriores. |
+
+Cada línea contiene `{ elementoId, unidadId, cantidad }`. La cantidad se envía como cadena decimal exacta, con hasta doce cifras enteras y seis decimales, respetando la unidad de control. Debe ser positiva, excepto el conteo físico de un ajuste, que admite cero. Se permiten hasta cien líneas por lista y cada elemento aparece una sola vez por operación. Todos los elementos deben estar activos y tener un conteo inicial; para un preparado recién incorporado, registrar primero un conteo de cero. El motivo obligatorio admite hasta 240 caracteres.
+
+Ejemplo de una compra, sustituyendo los identificadores por UUID del negocio:
+
+```ts
+const compra: RegistroMovimiento = {
+  tipo: 'compra',
+  jornadaId,
+  claveReintento: crypto.randomUUID(),
+  lineas: [{ elementoId, unidadId, cantidad: '5' }],
+};
+```
+
+La respuesta `MovimientoConfirmado` incluye `operacionId`, `autorId`, `jornadaId`, `tipo`, `registradaEn`, `motivo`, `observacion` y `lineas`. Cada línea devuelve `elementoId`, `unidadId`, `saldoAnterior`, `saldoResultante` y `variacion` como cantidades decimales en texto. En un ajuste de diez a ocho, la variación es `"-2"`. Una salida de piezas preparadas modifica solo sus existencias: no vuelve a consumir los ingredientes de la tanda.
+
+La clave de reintento pertenece al negocio y se comparte con las aperturas. El consumidor debe conservarla junto con la captura hasta resolver una respuesta incierta y reenviar los mismos datos; no debe generar otra clave tras un error de red. Se recupera la respuesta original incluso tras cerrar la jornada o desactivar el elemento, siempre que la cuenta conserve su acceso y permiso. Cambiar la autoría, el tipo o el contenido con la misma clave devuelve `reintento_distinto` (409). El orden de las líneas y los ceros decimales finales no cambian la identidad del intento.
+
+Una cantidad superior al saldo devuelve `saldo_insuficiente` (409); la ausencia de conteo inicial, `conteo_requerido` (409); exceder doce cifras enteras de saldo, `saldo_excedido` (409). Ninguno guarda líneas o saldos parciales. Los bloqueos de PostgreSQL serializan las operaciones sobre los mismos elementos y la restricción única de clave evita duplicar movimientos. Esto no implementa operación sin conexión ni resuelve la interacción entre varios dispositivos.
+
 ## Pruebas locales
 
 Para probar mediante HTTP con cuentas ficticias, cargar los datos de demostración siguiendo el [README del repositorio](../../README.md). Las pantallas de acceso y catálogo corresponden a A07.
 
-Para ejecutar la suite de integración, configurar `INVENTARIO_TEST_DATABASE_URL` con una base PostgreSQL de pruebas y ejecutar `pnpm test:inventario` desde la raíz. La cuenta de prueba debe poder crear esquemas. Goose aplica las migraciones en un esquema único que se elimina al terminar. La suite comprueba sesiones, revocación, aislamiento entre dos negocios, permisos de catálogo, conteos, reintentos y conservación de la autoría.
+Para ejecutar la suite de integración, configurar `INVENTARIO_TEST_DATABASE_URL` con una base PostgreSQL de pruebas y ejecutar `pnpm test:inventario` desde la raíz. La cuenta de prueba debe poder crear esquemas. Goose aplica las migraciones en un esquema único que se elimina al terminar. La suite comprueba sesiones, revocación, aislamiento entre dos negocios, permisos de catálogo, conteos, reintentos y conservación de la autoría. Para A08 comprueba compras, causas de merma, consumo, producción sin doble descuento, ajuste exclusivo de admin, precisión decimal, concurrencia, recuperación tras cierre y reversión completa cuando falla una línea.

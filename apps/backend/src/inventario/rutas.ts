@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { identidadSesion } from '../acceso/rutas-sesion.js';
 import { crearServicioApertura } from './apertura.js';
+import { crearServicioMovimientos } from './movimientos.js';
 import { crearCatalogo } from './catalogo.js';
 
 interface ParametrosId {
@@ -10,6 +11,11 @@ interface ParametrosId {
 }
 
 export function registrarRutasInventario(app: FastifyInstance, pool: Pool): void {
+  const movimientos = crearServicioMovimientos(pool);
+  app.post('/inventario/movimientos', async (request) =>
+    movimientos.registrar(identidadSesion(request), request.body));
+  app.get<ParametrosId>('/inventario/movimientos/:id', async (request) =>
+    movimientos.consultar(identidadSesion(request), request.params.id));
   const catalogo = crearCatalogo(pool);
   const inventario = crearServicioApertura(pool);
 

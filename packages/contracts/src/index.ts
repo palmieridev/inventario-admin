@@ -93,3 +93,46 @@ export interface Existencia {
   cantidad: string;
   actualizadaEn: string;
 }
+
+export type TipoMovimiento = 'compra' | 'tanda' | 'salida' | 'consumo' | 'merma' | 'ajuste';
+export const CAUSAS_MERMA = ['deterioro', 'caducidad', 'dano_traslado', 'error_preparacion', 'otra'] as const;
+export type CausaMerma = typeof CAUSAS_MERMA[number];
+
+export interface LineaMovimiento {
+  elementoId: string;
+  unidadId: string;
+  /** Cantidad positiva; en un ajuste representa el conteo físico, incluido cero. */
+  cantidad: string;
+}
+
+interface BaseMovimiento {
+  jornadaId: string;
+  claveReintento: string;
+  observacion?: string;
+}
+
+export type RegistroMovimiento = BaseMovimiento & (
+  | { tipo: 'compra'; lineas: LineaMovimiento[] }
+  | { tipo: 'salida' | 'consumo' | 'ajuste'; motivo: string; lineas: LineaMovimiento[] }
+  | { tipo: 'merma'; motivo: CausaMerma; lineas: LineaMovimiento[] }
+  | { tipo: 'tanda'; insumos: LineaMovimiento[]; productos: LineaMovimiento[] }
+);
+
+export interface LineaConfirmada {
+  elementoId: string;
+  unidadId: string;
+  saldoAnterior: string;
+  saldoResultante: string;
+  variacion: string;
+}
+
+export interface MovimientoConfirmado {
+  operacionId: string;
+  autorId: string;
+  jornadaId: string;
+  tipo: TipoMovimiento;
+  registradaEn: string;
+  motivo: string | null;
+  observacion: string | null;
+  lineas: LineaConfirmada[];
+}

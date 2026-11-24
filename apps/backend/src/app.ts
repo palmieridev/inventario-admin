@@ -31,6 +31,9 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   apertura_existente: 409,
   apertura_no_confirmada: 409,
   reintento_distinto: 409,
+  conteo_requerido: 409,
+  saldo_insuficiente: 409,
+  saldo_excedido: 409,
 };
 
 export function createApp(pool: Pool, { cookieSegura, logger = true, proxiesDeConfianza = [] }: OpcionesApp) {

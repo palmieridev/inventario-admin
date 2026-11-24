@@ -4,7 +4,7 @@ import type {
 import type { Pool, PoolClient } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
 import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
-import { ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
+import { cantidadDecimal, ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
 
 type DatosApertura = Pick<RegistroApertura, 'elementoId' | 'unidadId' | 'jornadaId' | 'cantidad'>;
 
@@ -21,15 +21,6 @@ interface Existencia extends Omit<ExistenciaRespuesta, 'actualizadaEn'> {
   actualizadaEn: Date;
 }
 
-function cantidadDecimal(valor: unknown): string {
-  if (typeof valor !== 'string' || valor !== valor.trim() || !/^\d{1,12}(?:\.\d{1,6})?$/.test(valor)) {
-    invalidos('Escribe una cantidad no negativa con hasta doce cifras enteras y seis decimales.');
-  }
-  const [entero = '0', fraccion = ''] = valor.split('.');
-  const base = entero.replace(/^0+(?=\d)/, '');
-  const decimales = fraccion.replace(/0+$/, '');
-  return decimales ? base + '.' + decimales : base;
-}
 
 async function buscarApertura(cliente: PoolClient, negocioId: string, clave: string): Promise<Apertura | undefined> {
   const { rows: [apertura] } = await cliente.query<Apertura>(
