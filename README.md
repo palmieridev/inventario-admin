@@ -24,6 +24,7 @@ inventario-admin/
 ├── package.json              # Comandos comunes y versión de pnpm
 ├── pnpm-lock.yaml            # Versiones resueltas de las dependencias
 ├── pnpm-workspace.yaml       # Espacios de trabajo
+├── sqlc.yaml                 # Generación de consultas PostgreSQL en TypeScript
 └── tsconfig.base.json        # Opciones comunes de TypeScript
 ```
 
@@ -90,9 +91,10 @@ Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga 
 | `pnpm dev` | Compila los contratos e inicia sus cambios en modo observación junto con frontend y backend. |
 | `pnpm build` | Compila los paquetes respetando sus dependencias internas. |
 | `pnpm typecheck` | Compila los contratos y revisa TypeScript y las plantillas Astro. |
-| `pnpm test:inventario` | Comprueba sesiones, permisos, catálogo y conteo inicial en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
+| `pnpm test:inventario` | Comprueba sesiones, permisos, catálogo, conteo inicial y movimientos en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
 | `pnpm db:up` | Inicia PostgreSQL en segundo plano. |
 | `pnpm db:check` | Comprueba si PostgreSQL acepta conexiones. |
+| `pnpm db:generate` | Regenera las consultas TypeScript del backend. Requiere sqlc v1.31.1 en `PATH`. |
 | `pnpm db:migrate` | Aplica las migraciones SQL pendientes de `apps/backend/migrations/`. |
 | `pnpm db:migrate:status` | Muestra qué migraciones ya se aplicaron. |
 | `pnpm db:seed:dev` | Carga cuentas y datos ficticios en PostgreSQL de desarrollo local. |
@@ -103,6 +105,8 @@ Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga 
 `Ctrl+C` detiene los procesos de `pnpm dev`; la base se detiene por separado con `pnpm db:down`. Los scripts no eliminan el volumen. Las variables de inicialización de PostgreSQL se aplican solo al crear una base nueva; cambiar `.env` no modifica las credenciales de un volumen existente. Se incluyen más detalles en [infra/docker/README.md](infra/docker/README.md).
 
 Los comandos de migración usan las variables `POSTGRES_*` de `.env` para desarrollo local. Para otra base, se puede proporcionar a Goose `GOOSE_DBSTRING` con la configuración de conexión correspondiente. La reversión del esquema inicial elimina sus tablas y se reserva para bases desechables durante la verificación. Los datos de prueba se cargan por separado.
+
+Cuando cambie una consulta o el esquema que usa, ejecutar `pnpm db:generate` y versionar el resultado junto con el SQL. La compilación y el arranque usan las funciones generadas que ya están en el repositorio. Véase el [flujo de consultas del backend](apps/backend/README.md#consultas-de-postgresql).
 
 ## Alcance previsto
 

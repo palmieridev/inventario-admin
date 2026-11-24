@@ -1,11 +1,22 @@
 import type { DatosUnidad, Elemento, Unidad } from '@inventario/contracts';
 import type { Pool, PoolClient } from 'pg';
+import {
+  actualizarElemento, actualizarUnidad, bloquearElemento, bloquearUnidad, buscarAperturaDeElemento,
+  buscarAperturaDeUnidad, buscarUnidad, crearElemento, crearUnidad, listarElementos, listarUnidades,
+  type ListarElementosRow,
+} from '../db/consultas/catalogo_sql.js';
 import { enTransaccion } from '../db/transaccion.js';
 import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto, texto } from './validacion.js';
 
-const camposUnidad = 'id, nombre, simbolo, decimales';
-const camposElemento = 'id, unidad_id AS "unidadId", categoria, nombre, variante, activo';
+function esCategoria(categoria: unknown): categoria is Elemento['categoria'] {
+  return categoria === 'insumo' || categoria === 'preparado' || categoria === 'bebida' || categoria === 'empaque';
+}
+
+function elementoDelCatalogo(elemento: ListarElementosRow): Elemento {
+  if (!esCategoria(elemento.categoria)) throw new Error('El elemento tiene una categoría inválida.');
+  return { ...elemento, categoria: elemento.categoria };
+}
 
 function datosUnidad(entrada: unknown): DatosUnidad {
   const datos = objeto(entrada);
@@ -23,7 +34,7 @@ function datosUnidad(entrada: unknown): DatosUnidad {
 function datosElemento(entrada: unknown): Omit<Elemento, 'id' | 'activo'> & { activo: boolean | undefined } {
   const datos = objeto(entrada);
   const { categoria, activo } = datos;
-  if (categoria !== 'insumo' && categoria !== 'preparado' && categoria !== 'bebida' && categoria !== 'empaque') {
+  if (!esCategoria(categoria)) {
     invalidos('Selecciona una categoría del catálogo.');
   }
   if (activo !== undefined && typeof activo !== 'boolean') invalidos('Indica si el elemento está activo.');
@@ -50,64 +61,43 @@ async function guardarUnico<T>(guardar: () => Promise<T>): Promise<T> {
 }
 
 async function comprobarUnidad(cliente: PoolClient, negocioId: string, unidadId: string): Promise<void> {
-  const existe = await cliente.query(
-    'SELECT id FROM unidades_medida WHERE negocio_id = $1 AND id = $2',
-    [negocioId, unidadId],
-  );
-  if (existe.rowCount === 0) throw new ErrorInventario('no_encontrado', 'La unidad no existe en el negocio.');
+  const existe = await buscarUnidad(cliente, { negocioId, unidadId });
+  if (!existe) throw new ErrorInventario('no_encontrado', 'La unidad no existe en el negocio.');
 }
 
 export function crearCatalogo(pool: Pool) {
   return {
     listarUnidades(identidad: IdentidadInventario): Promise<Unidad[]> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad);
-        const { rows } = await cliente.query<Unidad>(
-          'SELECT ' + camposUnidad + ' FROM unidades_medida WHERE negocio_id = $1 ORDER BY nombre, id',
-          [negocio_id],
-        );
-        return rows;
+        const { negocioId } = await autorizar(cliente, identidad);
+        return listarUnidades(cliente, { negocioId });
       });
     },
 
     crearUnidad(identidad: IdentidadInventario, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const datos = datosUnidad(entrada);
-        const { rows: [unidad] } = await cliente.query<Unidad>(
-          'INSERT INTO unidades_medida (negocio_id, nombre, simbolo, decimales) VALUES ($1, $2, $3, $4) ' +
-          'RETURNING ' + camposUnidad,
-          [negocio_id, datos.nombre, datos.simbolo, datos.decimales],
-        );
+        const unidad = await crearUnidad(cliente, { negocioId, ...datos });
         return unidad!;
       }));
     },
 
     modificarUnidad(identidad: IdentidadInventario, unidadId: string, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(unidadId, 'La unidad');
         const datos = datosUnidad(entrada);
-        const { rows: [actual] } = await cliente.query<Unidad>(
-          'SELECT ' + camposUnidad + ' FROM unidades_medida WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
-          [negocio_id, id],
-        );
+        const actual = await bloquearUnidad(cliente, { negocioId, unidadId: id });
         if (!actual) throw new ErrorInventario('no_encontrado', 'La unidad no existe en el negocio.');
         if (actual.nombre === datos.nombre && actual.simbolo === datos.simbolo &&
           actual.decimales === datos.decimales) return actual;
 
-        const aperturas = await cliente.query(
-          'SELECT 1 FROM aperturas_inventario WHERE negocio_id = $1 AND unidad_id = $2 LIMIT 1',
-          [negocio_id, id],
-        );
-        if (aperturas.rowCount) {
+        const apertura = await buscarAperturaDeUnidad(cliente, { negocioId, unidadId: id });
+        if (apertura) {
           throw new ErrorInventario('unidad_con_historial', 'La unidad ya se usó en un conteo inicial.');
         }
-        const { rows: [unidad] } = await cliente.query<Unidad>(
-          'UPDATE unidades_medida SET nombre = $3, simbolo = $4, decimales = $5 WHERE negocio_id = $1 AND id = $2 ' +
-          'RETURNING ' + camposUnidad,
-          [negocio_id, id, datos.nombre, datos.simbolo, datos.decimales],
-        );
+        const unidad = await actualizarUnidad(cliente, { negocioId, unidadId: id, ...datos });
         return unidad!;
       }));
     },
@@ -115,56 +105,42 @@ export function crearCatalogo(pool: Pool) {
     listarElementos(identidad: IdentidadInventario): Promise<Elemento[]> {
       return enTransaccion(pool, async (cliente) => {
         const usuario = await autorizar(cliente, identidad);
-        const { rows } = await cliente.query<Elemento>(
-          'SELECT ' + camposElemento + ' FROM elementos_inventario ' +
-          'WHERE negocio_id = $1 AND (activo OR $2) ORDER BY categoria, nombre, variante, id',
-          [usuario.negocio_id, usuario.rol === 'admin'],
-        );
-        return rows;
+        const elementos = await listarElementos(cliente, {
+          negocioId: usuario.negocioId, incluirInactivos: usuario.rol === 'admin',
+        });
+        return elementos.map(elementoDelCatalogo);
       });
     },
 
     crearElemento(identidad: IdentidadInventario, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const datos = datosElemento(entrada);
-        await comprobarUnidad(cliente, negocio_id, datos.unidadId);
-        const { rows: [elemento] } = await cliente.query<Elemento>(
-          'INSERT INTO elementos_inventario (negocio_id, unidad_id, categoria, nombre, variante, activo) ' +
-          'VALUES ($1, $2, $3, $4, $5, $6) RETURNING ' + camposElemento,
-          [negocio_id, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? true],
-        );
-        return elemento!;
+        await comprobarUnidad(cliente, negocioId, datos.unidadId);
+        const elemento = await crearElemento(cliente, { negocioId, ...datos, activo: datos.activo ?? true });
+        return elementoDelCatalogo(elemento!);
       }));
     },
 
     modificarElemento(identidad: IdentidadInventario, elementoId: string, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(elementoId, 'El elemento');
         const datos = datosElemento(entrada);
-        const { rows: [actual] } = await cliente.query<Elemento>(
-          'SELECT ' + camposElemento + ' FROM elementos_inventario WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
-          [negocio_id, id],
-        );
+        const actual = await bloquearElemento(cliente, { negocioId, elementoId: id });
         if (!actual) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
         if (actual.unidadId !== datos.unidadId) {
-          await comprobarUnidad(cliente, negocio_id, datos.unidadId);
-          const aperturas = await cliente.query(
-            'SELECT 1 FROM aperturas_inventario WHERE negocio_id = $1 AND elemento_id = $2',
-            [negocio_id, id],
-          );
-          if (aperturas.rowCount) {
+          await comprobarUnidad(cliente, negocioId, datos.unidadId);
+          const apertura = await buscarAperturaDeElemento(cliente, { negocioId, elementoId: id });
+          if (apertura) {
             throw new ErrorInventario('unidad_con_historial', 'El elemento ya tiene un conteo inicial.');
           }
         }
 
-        const { rows: [elemento] } = await cliente.query<Elemento>(
-          'UPDATE elementos_inventario SET unidad_id = $3, categoria = $4, nombre = $5, variante = $6, activo = $7 ' +
-          'WHERE negocio_id = $1 AND id = $2 RETURNING ' + camposElemento,
-          [negocio_id, id, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? actual.activo],
-        );
-        return elemento!;
+        const elemento = await actualizarElemento(cliente, {
+          negocioId, elementoId: id, ...datos, activo: datos.activo ?? actual.activo,
+        });
+        return elementoDelCatalogo(elemento!);
       }));
     },
   };

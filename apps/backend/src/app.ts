@@ -5,6 +5,7 @@ import type { HealthResponse, ReadinessResponse } from '@inventario/contracts';
 import type { Pool } from 'pg';
 import { registrarRutasPersonal } from './acceso/rutas-personal.js';
 import { registrarRutasSesion } from './acceso/rutas-sesion.js';
+import { comprobarConexion } from './db/consultas/conexion_sql.js';
 import { registrarRutasInventario } from './inventario/rutas.js';
 import { ErrorInventario } from './inventario/validacion.js';
 
@@ -54,7 +55,7 @@ export function createApp(pool: Pool, { cookieSegura, logger = true, proxiesDeCo
 
   app.get<{ Reply: ReadinessResponse }>('/ready', async (_request, reply) => {
     try {
-      await pool.query('SELECT 1');
+      await comprobarConexion(pool);
       return { status: 'ok', database: 'connected' };
     } catch (error) {
       app.log.error({ codigo: error instanceof Error && 'code' in error ? error.code : undefined },

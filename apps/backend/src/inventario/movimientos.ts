@@ -1,7 +1,13 @@
-import { CAUSAS_MERMA, type LineaConfirmada, type LineaMovimiento, type MovimientoConfirmado,
+import { CAUSAS_MERMA, type LineaMovimiento, type MovimientoConfirmado,
   type TipoMovimiento } from '@inventario/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
+import { leerJornadaBloqueada, registrarOperacion } from '../db/consultas/apertura_sql.js';
+import { bloquearElemento, leerUnidadBloqueada } from '../db/consultas/catalogo_sql.js';
+import {
+  actualizarFechaOperacion, actualizarSaldo, buscarMovimiento, buscarReintentoMovimiento, calcularSaldoBloqueado,
+  insertarLineaMovimiento, insertarMovimiento, listarLineasMovimiento,
+} from '../db/consultas/movimientos_sql.js';
 import { enTransaccion } from '../db/transaccion.js';
 import { cantidadDecimal, ErrorInventario, identificador, invalidos, objeto, texto } from './validacion.js';
 
@@ -14,12 +20,17 @@ interface Datos {
   lineas: Linea[];
 }
 
+function esTipoMovimiento(tipo: unknown): tipo is TipoMovimiento {
+  return tipo === 'compra' || tipo === 'tanda' || tipo === 'salida' ||
+    tipo === 'consumo' || tipo === 'merma' || tipo === 'ajuste';
+}
+
 function validar(entrada: unknown): { clave: string; datos: Datos } {
   const v = objeto(entrada);
-  if (typeof v.tipo !== 'string' || !['compra', 'tanda', 'salida', 'consumo', 'merma', 'ajuste'].includes(v.tipo)) {
+  const { tipo } = v;
+  if (!esTipoMovimiento(tipo)) {
     invalidos('Selecciona un tipo de movimiento válido.');
   }
-  const tipo = v.tipo as TipoMovimiento;
   const motivo = ['salida', 'consumo', 'merma', 'ajuste'].includes(tipo)
     ? texto(v.motivo, 'El motivo', 240) : null;
   if (tipo === 'merma' && !CAUSAS_MERMA.some((causa) => causa === motivo)) {
@@ -53,28 +64,16 @@ function validar(entrada: unknown): { clave: string; datos: Datos } {
 }
 
 async function consultar(cliente: PoolClient, negocioId: string, operacionId: string): Promise<MovimientoConfirmado> {
-  const { rows: [movimiento] } = await cliente.query<Omit<MovimientoConfirmado, 'lineas' | 'registradaEn'> & { registradaEn: Date }>(
-    'SELECT o.id AS "operacionId", o.autor_id AS "autorId", o.jornada_id AS "jornadaId", o.tipo, ' +
-    'o.registrada_en AS "registradaEn", m.motivo, m.observacion FROM operaciones_inventario o ' +
-    'JOIN movimientos_inventario m ON m.negocio_id = o.negocio_id AND m.operacion_id = o.id ' +
-    'WHERE o.negocio_id = $1 AND o.id = $2', [negocioId, operacionId],
-  );
+  const movimiento = await buscarMovimiento(cliente, { negocioId, operacionId });
   if (!movimiento) throw new ErrorInventario('no_encontrado', 'El movimiento no existe en el negocio.');
-  const { rows: lineas } = await cliente.query<LineaConfirmada>(
-    'SELECT elemento_id AS "elementoId", unidad_id AS "unidadId", saldo_anterior::text AS "saldoAnterior", ' +
-    'saldo_resultante::text AS "saldoResultante", variacion::text AS variacion FROM lineas_movimiento ' +
-    'WHERE negocio_id = $1 AND operacion_id = $2 ORDER BY elemento_id', [negocioId, operacionId],
-  );
-  return { ...movimiento, registradaEn: movimiento.registradaEn.toISOString(), lineas };
+  const { tipo, registradaEn } = movimiento;
+  if (!esTipoMovimiento(tipo)) throw new Error('La operación tiene un tipo de movimiento inválido.');
+  const lineas = await listarLineasMovimiento(cliente, { negocioId, operacionId });
+  return { ...movimiento, tipo, registradaEn: registradaEn.toISOString(), lineas };
 }
 
-async function recuperar(cliente: PoolClient, negocioId: string, autorId: string, clave: string, datos: Datos) {
-  const { rows: [previa] } = await cliente.query<{ id: string; coincide: boolean }>(
-    'SELECT o.id, (o.autor_id = $3 AND m.solicitud = $4::jsonb) AS coincide ' +
-    'FROM operaciones_inventario o LEFT JOIN movimientos_inventario m ' +
-    'ON m.negocio_id = o.negocio_id AND m.operacion_id = o.id WHERE o.negocio_id = $1 AND o.clave_reintento = $2',
-    [negocioId, clave, autorId, JSON.stringify(datos)],
-  );
+async function recuperar(cliente: PoolClient, negocioId: string, autorId: string, claveReintento: string, solicitud: string) {
+  const previa = await buscarReintentoMovimiento(cliente, { negocioId, claveReintento, autorId, solicitud });
   if (!previa) return undefined;
   if (!previa.coincide) throw new ErrorInventario('reintento_distinto', 'La clave ya corresponde a otra operación.');
   return consultar(cliente, negocioId, previa.id);
@@ -85,7 +84,7 @@ export function crearServicioMovimientos(pool: Pool) {
     consultar(identidad: IdentidadInventario, id: string): Promise<MovimientoConfirmado> {
       return enTransaccion(pool, async (cliente) => {
         const usuario = await autorizar(cliente, identidad);
-        return consultar(cliente, usuario.negocio_id, identificador(id, 'El movimiento'));
+        return consultar(cliente, usuario.negocioId, identificador(id, 'El movimiento'));
       });
     },
 
@@ -96,82 +95,58 @@ export function crearServicioMovimientos(pool: Pool) {
         if (datos.tipo === 'ajuste' && usuario.rol !== 'admin') {
           throw new ErrorInventario('acceso_denegado', 'Solo el propietario o encargado puede autorizar ajustes.');
         }
-        const negocioId = usuario.negocio_id;
-        const previa = await recuperar(cliente, negocioId, usuario.id, clave, datos);
+        const { negocioId, id: autorId } = usuario;
+        const solicitud = JSON.stringify(datos);
+        const previa = await recuperar(cliente, negocioId, autorId, clave, solicitud);
         if (previa) return previa;
-        const { rows: [jornada] } = await cliente.query<{ iniciada: boolean; cerrada_en: Date | null }>(
-          'SELECT iniciada_en <= CURRENT_TIMESTAMP AS iniciada, cerrada_en FROM jornadas ' +
-          'WHERE negocio_id = $1 AND id = $2 FOR SHARE', [negocioId, datos.jornadaId],
-        );
+        const jornada = await leerJornadaBloqueada(cliente, { negocioId, jornadaId: datos.jornadaId });
         if (!jornada) throw new ErrorInventario('no_encontrado', 'La jornada no existe en el negocio.');
-        const { rows: [operacion] } = await cliente.query<{ id: string }>(
-          'INSERT INTO operaciones_inventario (negocio_id, autor_id, jornada_id, tipo, clave_reintento) ' +
-          'VALUES ($1, $2, $3, $4, $5) ON CONFLICT (negocio_id, clave_reintento) DO NOTHING RETURNING id',
-          [negocioId, usuario.id, datos.jornadaId, datos.tipo, clave],
-        );
+        const operacion = await registrarOperacion(cliente, {
+          negocioId, autorId, jornadaId: datos.jornadaId, tipo: datos.tipo, claveReintento: clave,
+        });
         if (!operacion) {
-          const resultado = await recuperar(cliente, negocioId, usuario.id, clave, datos);
+          const resultado = await recuperar(cliente, negocioId, autorId, clave, solicitud);
           if (!resultado) throw new Error('No se pudo recuperar la operación confirmada.');
           return resultado;
         }
         if (!jornada.iniciada) throw new ErrorInventario('jornada_no_iniciada', 'La jornada todavía no ha iniciado.');
-        if (jornada.cerrada_en) throw new ErrorInventario('jornada_cerrada', 'La jornada ya se cerró.');
-        await cliente.query(
-          'INSERT INTO movimientos_inventario (negocio_id, operacion_id, solicitud, motivo, observacion) ' +
-          'VALUES ($1, $2, $3, $4, $5)',
-          [negocioId, operacion.id, JSON.stringify(datos), datos.motivo, datos.observacion],
-        );
+        if (jornada.cerradaEn) throw new ErrorInventario('jornada_cerrada', 'La jornada ya se cerró.');
+        const operacionId = operacion.id;
+        await insertarMovimiento(cliente, {
+          negocioId, operacionId, solicitud, motivo: datos.motivo, observacion: datos.observacion,
+        });
         const saldos: { linea: Linea; anterior: string; siguiente: string }[] = [];
         // Orden estable para bloquear todos los elementos de una tanda sin invertir los bloqueos.
         for (const linea of datos.lineas) {
-          const { rows: [elemento] } = await cliente.query<{ unidad_id: string; activo: boolean; categoria: string }>(
-            'SELECT unidad_id, activo, categoria FROM elementos_inventario WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
-            [negocioId, linea.elementoId],
-          );
+          const elemento = await bloquearElemento(cliente, { negocioId, elementoId: linea.elementoId });
           if (!elemento) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
           if (!elemento.activo) throw new ErrorInventario('elemento_inactivo', 'El elemento está inactivo.');
-          if (elemento.unidad_id !== linea.unidadId) invalidos('Usa la unidad de control del elemento.');
+          if (elemento.unidadId !== linea.unidadId) invalidos('Usa la unidad de control del elemento.');
           if (linea.categoria && elemento.categoria !== linea.categoria) {
             invalidos('Una tanda consume insumos y obtiene productos preparados.');
           }
-          const { rows: [unidad] } = await cliente.query<{ decimales: number }>(
-            'SELECT decimales FROM unidades_medida WHERE negocio_id = $1 AND id = $2 FOR SHARE',
-            [negocioId, linea.unidadId],
-          );
+          const unidad = await leerUnidadBloqueada(cliente, { negocioId, unidadId: linea.unidadId });
           if (!unidad || (linea.cantidad.split('.')[1]?.length ?? 0) > unidad.decimales) {
             invalidos('La cantidad excede los decimales permitidos por la unidad de control.');
           }
-          const { rows: [saldo] } = await cliente.query<{ anterior: string; siguiente: string; insuficiente: boolean; excedido: boolean }>(
-            'SELECT cantidad::text AS anterior, calculo::text AS siguiente, calculo < 0 AS insuficiente, ' +
-            'calculo >= 1000000000000 AS excedido FROM existencias_inventario, LATERAL (SELECT CASE $4::text ' +
-            "WHEN 'sumar' THEN cantidad + $3::numeric WHEN 'restar' THEN cantidad - $3::numeric ELSE $3::numeric END AS calculo) c " +
-            'WHERE negocio_id = $1 AND elemento_id = $2 FOR UPDATE OF existencias_inventario',
-            [negocioId, linea.elementoId, linea.cantidad, linea.efecto],
-          );
+          const saldo = await calcularSaldoBloqueado(cliente, {
+            negocioId, elementoId: linea.elementoId, cantidad: linea.cantidad, efecto: linea.efecto,
+          });
           if (!saldo) throw new ErrorInventario('conteo_requerido', 'Registra primero el conteo inicial del elemento.');
           if (saldo.insuficiente) throw new ErrorInventario('saldo_insuficiente', 'La cantidad supera la existencia. Revisa el saldo y la captura.');
           if (saldo.excedido) throw new ErrorInventario('saldo_excedido', 'El saldo resultante excede el límite de doce cifras enteras.');
           saldos.push({ linea, anterior: saldo.anterior, siguiente: saldo.siguiente });
         }
         // La fecha debe reflejar el orden de los cambios sobre un mismo elemento.
-        await cliente.query(
-          'UPDATE operaciones_inventario SET registrada_en = clock_timestamp() WHERE negocio_id = $1 AND id = $2',
-          [negocioId, operacion.id],
-        );
+        await actualizarFechaOperacion(cliente, { negocioId, operacionId });
         for (const { linea, anterior, siguiente } of saldos) {
-          await cliente.query(
-            'INSERT INTO lineas_movimiento (negocio_id, operacion_id, elemento_id, unidad_id, saldo_anterior, saldo_resultante) ' +
-            'VALUES ($1, $2, $3, $4, $5, $6)',
-            [negocioId, operacion.id, linea.elementoId, linea.unidadId, anterior, siguiente],
-          );
-          await cliente.query(
-            'UPDATE existencias_inventario e SET cantidad = $3, actualizada_en = o.registrada_en ' +
-            'FROM operaciones_inventario o WHERE e.negocio_id = $1 AND e.elemento_id = $2 ' +
-            'AND o.negocio_id = e.negocio_id AND o.id = $4',
-            [negocioId, linea.elementoId, siguiente, operacion.id],
-          );
+          await insertarLineaMovimiento(cliente, {
+            negocioId, operacionId, elementoId: linea.elementoId, unidadId: linea.unidadId,
+            saldoAnterior: anterior, saldoResultante: siguiente,
+          });
+          await actualizarSaldo(cliente, { negocioId, operacionId, elementoId: linea.elementoId, cantidad: siguiente });
         }
-        return consultar(cliente, negocioId, operacion.id);
+        return consultar(cliente, negocioId, operacionId);
       });
     },
   };
