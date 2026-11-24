@@ -156,6 +156,32 @@ test('registra una apertura por variante, incluye cero y conserva el saldo entre
   assert.deepEqual(rows, [{ tipo: 'apertura', total: 2 }]);
 });
 
+test('rechaza el conteo antes del inicio de la jornada y permite reintentarlo cuando inicia', async () => {
+  const puesto = await negocio('Puesto con jornada programada');
+  const jornadaId = randomUUID();
+  await pool.query(
+    "INSERT INTO jornadas (id, negocio_id, iniciada_en) VALUES ($1, $2, now() + interval '1 day')",
+    [jornadaId, puesto.id],
+  );
+  const pieza = await catalogo.crearUnidad(puesto.admin, { nombre: 'Pieza', simbolo: 'pza', decimales: 0 });
+  const bebida = await catalogo.crearElemento(puesto.admin, {
+    categoria: 'bebida', nombre: 'Agua', unidadId: pieza.id,
+  });
+  const datos = {
+    jornadaId, elementoId: bebida.id, unidadId: pieza.id, cantidad: '3', claveReintento: randomUUID(),
+  };
+
+  await assert.rejects(inventario.registrarApertura(puesto.staff, datos), { codigo: 'jornada_no_iniciada' });
+  assert.equal(await inventario.consultarExistencia(puesto.staff, bebida.id), null);
+  const operaciones = await pool.query('SELECT id FROM operaciones_inventario WHERE jornada_id = $1', [jornadaId]);
+  assert.equal(operaciones.rowCount, 0);
+
+  await pool.query('UPDATE jornadas SET iniciada_en = now() WHERE id = $1', [jornadaId]);
+  const confirmada = await inventario.registrarApertura(puesto.staff, datos);
+  assert.equal(confirmada.cantidad, '3');
+  assert.deepEqual(await inventario.registrarApertura(puesto.staff, datos), confirmada);
+});
+
 test('preserva decimales y rechaza datos incompatibles o de otro negocio sin saldos parciales', async () => {
   const puesto = await negocio('Puesto de masa');
   const otro = await negocio('Segundo puesto de masa');

@@ -5,6 +5,7 @@ type CodigoInventario =
   | 'catalogo_duplicado'
   | 'unidad_con_historial'
   | 'elemento_inactivo'
+  | 'jornada_no_iniciada'
   | 'jornada_cerrada'
   | 'apertura_existente'
   | 'reintento_distinto';

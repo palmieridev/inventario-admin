@@ -70,8 +70,9 @@ export function crearServicioApertura(pool: Pool) {
         const previa = await buscarApertura(cliente, negocioId, clave);
         if (previa) return comprobarReintento(previa, autorId, datos);
 
-        const { rows: [jornada] } = await cliente.query<{ cerrada_en: Date | null }>(
-          'SELECT cerrada_en FROM jornadas WHERE negocio_id = $1 AND id = $2 FOR SHARE',
+        const { rows: [jornada] } = await cliente.query<{ iniciada: boolean; cerrada_en: Date | null }>(
+          'SELECT iniciada_en <= CURRENT_TIMESTAMP AS iniciada, cerrada_en FROM jornadas ' +
+          'WHERE negocio_id = $1 AND id = $2 FOR SHARE',
           [negocioId, datos.jornadaId],
         );
         if (!jornada) throw new ErrorInventario('no_encontrado', 'La jornada no existe en el negocio.');
@@ -86,6 +87,7 @@ export function crearServicioApertura(pool: Pool) {
         if (!operacion) {
           return comprobarReintento(await buscarApertura(cliente, negocioId, clave), autorId, datos);
         }
+        if (!jornada.iniciada) throw new ErrorInventario('jornada_no_iniciada', 'La jornada todavía no ha iniciado.');
         if (jornada.cerrada_en) throw new ErrorInventario('jornada_cerrada', 'La jornada ya se cerró.');
 
         const { rows: [elemento] } = await cliente.query<{ unidad_id: string; activo: boolean }>(
