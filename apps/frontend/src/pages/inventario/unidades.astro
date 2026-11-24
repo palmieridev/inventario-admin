@@ -1,0 +1,132 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+---
+
+<InventarioLayout title="Unidades de control">
+  <section class="flujo">
+    <a class="volver" href="/inventario/">Volver al inventario</a>
+    <h1 id="titulo-unidad">Unidades de control</h1>
+    <p id="unidad-no-disponible" class="aviso" hidden>La unidad seleccionada no está disponible en tu catálogo.</p>
+    <div id="unidades-registradas" class="flujo" hidden>
+      <a class="boton" href="/inventario/unidades/?nueva">Nueva unidad</a>
+      <ul id="lista-unidades" class="lista"></ul>
+      <p id="sin-unidades" class="texto-secundario" hidden>Aún no hay unidades de control.</p>
+    </div>
+    <form id="formulario-unidad" class="panel formulario" method="post" hidden>
+      <div class="campo">
+        <label for="nombre-unidad">Nombre</label>
+        <input id="nombre-unidad" name="nombre" placeholder="Ej. kilogramo" required aria-describedby="error-nombre-unidad" />
+        <p id="error-nombre-unidad" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="simbolo">Símbolo</label>
+        <input id="simbolo" name="simbolo" placeholder="Ej. kg" required aria-describedby="error-simbolo" />
+        <p id="error-simbolo" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="decimales">Decimales permitidos</label>
+        <input id="decimales" name="decimales" type="number" inputmode="numeric" min="0" max="6" step="1"
+          value="0" required aria-describedby="ayuda-decimales" />
+        <p id="ayuda-decimales" class="texto-secundario">Usa 0 para cantidades enteras.</p>
+      </div>
+      <p id="error-unidad" class="error" role="alert" hidden></p>
+      <button type="submit">Guardar unidad</button>
+      <p id="confirmacion-unidad" class="aviso" role="status" hidden></p>
+      <a class="volver" href="/inventario/unidades/">Ver todas las unidades</a>
+    </form>
+  </section>
+</InventarioLayout>
+
+<script>
+  import type { DatosUnidad, Unidad } from '@inventario/contracts';
+  import { ErrorApi, solicitar } from '../../lib/api';
+  import { errorCampo, limpiarFormulario, textoValido } from '../../lib/formularios';
+  import { conSesion, mensajeError, mostrarAviso, revisarSesion } from '../../lib/sesion';
+
+  void conSesion(async () => {
+    const ruta = '/inventario/unidades';
+    const unidades = await solicitar<Unidad[]>(ruta);
+    const parametros = new URLSearchParams(location.search);
+    const id = parametros.get('editar');
+    const titulo = document.querySelector<HTMLElement>('#titulo-unidad')!;
+    let actual = unidades.find((unidad) => unidad.id === id);
+
+    if (id === null && !parametros.has('nueva')) {
+      const lista = document.querySelector<HTMLElement>('#lista-unidades')!;
+      for (const unidad of unidades) {
+        const fila = document.createElement('li');
+        fila.className = 'fila';
+        const enlace = document.createElement('a');
+        enlace.className = 'detalle-elemento';
+        enlace.href = ruta + '/?' + new URLSearchParams({ editar: unidad.id });
+        enlace.textContent = unidad.nombre + ' (' + unidad.simbolo + ')';
+        fila.append(enlace);
+        lista.append(fila);
+      }
+      document.querySelector<HTMLElement>('#sin-unidades')!.hidden = unidades.length > 0;
+      document.querySelector<HTMLElement>('#unidades-registradas')!.hidden = false;
+      return;
+    }
+
+    titulo.textContent = id === null ? 'Nueva unidad' : 'Editar unidad';
+    if (id !== null && !actual) {
+      document.querySelector<HTMLElement>('#unidad-no-disponible')!.hidden = false;
+      return;
+    }
+
+    const formulario = document.querySelector<HTMLFormElement>('#formulario-unidad')!;
+    const nombre = formulario.querySelector<HTMLInputElement>('#nombre-unidad')!;
+    const simbolo = formulario.querySelector<HTMLInputElement>('#simbolo')!;
+    const decimales = formulario.querySelector<HTMLInputElement>('#decimales')!;
+    const boton = formulario.querySelector<HTMLButtonElement>('button')!;
+    const aviso = formulario.querySelector<HTMLElement>('#error-unidad')!;
+    const confirmacion = formulario.querySelector<HTMLElement>('#confirmacion-unidad')!;
+
+    if (actual) {
+      nombre.value = actual.nombre;
+      simbolo.value = actual.simbolo;
+      decimales.value = String(actual.decimales);
+    }
+    formulario.hidden = false;
+
+    formulario.addEventListener('submit', async (evento) => {
+      evento.preventDefault();
+      if (boton.disabled) return;
+      limpiarFormulario(formulario);
+      mostrarAviso(confirmacion, '');
+
+      const datos: DatosUnidad = {
+        nombre: nombre.value.trim(),
+        simbolo: simbolo.value.trim(),
+        decimales: decimales.valueAsNumber,
+      };
+      if (!textoValido(datos.nombre, 60)) {
+        errorCampo(nombre, 'Escribe un nombre de hasta 60 caracteres.');
+        return;
+      }
+      if (!textoValido(datos.simbolo, 12)) {
+        errorCampo(simbolo, 'Escribe un símbolo de hasta 12 caracteres.');
+        return;
+      }
+
+      boton.disabled = true;
+      try {
+        actual = actual
+          ? await solicitar<Unidad>(ruta + '/' + actual.id, 'PUT', datos)
+          : await solicitar<Unidad>(ruta, 'POST', datos);
+        history.replaceState(null, '', '?' + new URLSearchParams({ editar: actual.id }));
+        titulo.textContent = 'Editar unidad';
+        mostrarAviso(confirmacion, 'Unidad guardada: ' + actual.nombre + ' (' + actual.simbolo + ').');
+      } catch (error) {
+        if (revisarSesion(error)) return;
+        if (error instanceof ErrorApi && error.codigo === 'catalogo_duplicado') {
+          errorCampo(nombre, 'Ya existe una unidad con ese nombre.');
+        } else {
+          mostrarAviso(aviso, mensajeError(error));
+        }
+      } finally {
+        boton.disabled = false;
+      }
+    });
+  }, true);
+</script>

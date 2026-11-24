@@ -1,0 +1,148 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+import { categorias } from '../../lib/catalogo';
+---
+
+<InventarioLayout title="Administrar elemento">
+  <section class="flujo">
+    <a class="volver" href="/inventario/">Volver al inventario</a>
+    <h1 id="titulo-elemento">Nuevo elemento</h1>
+    <p id="elemento-no-disponible" class="aviso" hidden>El elemento seleccionado no está disponible en tu catálogo.</p>
+    <div id="sin-unidades" class="panel flujo" hidden>
+      <p>Agrega una unidad de control para registrar el elemento.</p>
+      <a class="boton" href="/inventario/unidades/?nueva">Nueva unidad</a>
+    </div>
+    <form id="formulario-elemento" class="panel formulario" method="post" hidden>
+      <div class="campo">
+        <label for="nombre-elemento">Nombre</label>
+        <input id="nombre-elemento" name="nombre" required aria-describedby="error-nombre-elemento" />
+        <p id="error-nombre-elemento" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="variante">Variante (opcional)</label>
+        <input id="variante" name="variante" placeholder="Ej. verde o 500 ml" aria-describedby="error-variante" />
+        <p id="error-variante" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="categoria-elemento">Categoría</label>
+        <select id="categoria-elemento" name="categoria" required>
+          <option value="">Selecciona una categoría</option>
+          {Object.entries(categorias).map(([valor, etiqueta]) => <option value={valor}>{etiqueta}</option>)}
+        </select>
+      </div>
+      <div class="campo">
+        <label for="unidad-elemento">Unidad de control</label>
+        <select id="unidad-elemento" name="unidad" required aria-describedby="error-unidad-elemento">
+          <option value="">Selecciona una unidad</option>
+        </select>
+        <p id="error-unidad-elemento" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="estado-elemento">Estado del elemento</label>
+        <select id="estado-elemento" name="activo">
+          <option value="true">Activo</option>
+          <option value="false">Inactivo</option>
+        </select>
+      </div>
+      <p id="error-elemento" class="error" role="alert" hidden></p>
+      <button type="submit">Guardar elemento</button>
+      <p id="confirmacion-elemento" class="aviso" role="status" hidden></p>
+    </form>
+  </section>
+</InventarioLayout>
+
+<script>
+  import type { DatosElemento, Elemento } from '@inventario/contracts';
+  import { ErrorApi, solicitar } from '../../lib/api';
+  import { cargarCatalogo, nombreElemento } from '../../lib/catalogo';
+  import { errorCampo, limpiarFormulario, textoValido } from '../../lib/formularios';
+  import { conSesion, mensajeError, mostrarAviso, revisarSesion } from '../../lib/sesion';
+
+  void conSesion(async () => {
+    const { elementos, unidades } = await cargarCatalogo();
+    const id = new URLSearchParams(location.search).get('editar');
+    let actual = elementos.find((elemento) => elemento.id === id);
+    const titulo = document.querySelector<HTMLElement>('#titulo-elemento')!;
+
+    if (id !== null) {
+      titulo.textContent = 'Editar elemento';
+      if (!actual) {
+        document.querySelector<HTMLElement>('#elemento-no-disponible')!.hidden = false;
+        return;
+      }
+    }
+    if (!unidades.size) {
+      document.querySelector<HTMLElement>('#sin-unidades')!.hidden = false;
+      return;
+    }
+
+    const formulario = document.querySelector<HTMLFormElement>('#formulario-elemento')!;
+    const nombre = formulario.querySelector<HTMLInputElement>('#nombre-elemento')!;
+    const variante = formulario.querySelector<HTMLInputElement>('#variante')!;
+    const categoria = formulario.querySelector<HTMLSelectElement>('#categoria-elemento')!;
+    const unidad = formulario.querySelector<HTMLSelectElement>('#unidad-elemento')!;
+    const activo = formulario.querySelector<HTMLSelectElement>('#estado-elemento')!;
+    const boton = formulario.querySelector<HTMLButtonElement>('button')!;
+    const errorGeneral = formulario.querySelector<HTMLElement>('#error-elemento')!;
+    const confirmacion = formulario.querySelector<HTMLElement>('#confirmacion-elemento')!;
+
+    for (const opcion of unidades.values()) {
+      unidad.add(new Option(opcion.nombre + ' (' + opcion.simbolo + ')', opcion.id));
+    }
+    if (actual) {
+      nombre.value = actual.nombre;
+      variante.value = actual.variante ?? '';
+      categoria.value = actual.categoria;
+      unidad.value = actual.unidadId;
+      activo.value = String(actual.activo);
+    }
+    formulario.hidden = false;
+
+    formulario.addEventListener('submit', async (evento) => {
+      evento.preventDefault();
+      if (boton.disabled) return;
+      limpiarFormulario(formulario);
+      mostrarAviso(confirmacion, '');
+
+      const datos: DatosElemento = {
+        nombre: nombre.value.trim(),
+        variante: variante.value.trim() || null,
+        categoria: categoria.value as DatosElemento['categoria'],
+        unidadId: unidad.value,
+        activo: activo.value === 'true',
+      };
+      if (!textoValido(datos.nombre, 120)) {
+        errorCampo(nombre, 'Escribe un nombre de hasta 120 caracteres.');
+        return;
+      }
+      if (datos.variante && !textoValido(datos.variante, 80)) {
+        errorCampo(variante, 'Escribe una variante de hasta 80 caracteres.');
+        return;
+      }
+
+      boton.disabled = true;
+      try {
+        const ruta = '/inventario/elementos';
+        actual = actual
+          ? await solicitar<Elemento>(ruta + '/' + actual.id, 'PUT', datos)
+          : await solicitar<Elemento>(ruta, 'POST', datos);
+        history.replaceState(null, '', '?' + new URLSearchParams({ editar: actual.id }));
+        titulo.textContent = 'Editar elemento';
+        mostrarAviso(confirmacion, 'Elemento guardado: ' + nombreElemento(actual) + '.');
+      } catch (error) {
+        if (revisarSesion(error)) return;
+        if (error instanceof ErrorApi && error.codigo === 'catalogo_duplicado') {
+          errorCampo(variante, 'Ya existe un elemento con el mismo nombre, categoría y variante.');
+        } else if (error instanceof ErrorApi && error.codigo === 'unidad_con_historial') {
+          errorCampo(unidad, 'El elemento ya tiene un conteo inicial. Conserva su unidad de control.');
+        } else if (error instanceof ErrorApi && error.codigo === 'no_encontrado' && error.message.startsWith('La unidad')) {
+          errorCampo(unidad, mensajeError(error));
+        } else {
+          mostrarAviso(errorGeneral, mensajeError(error));
+        }
+      } finally {
+        boton.disabled = false;
+      }
+    });
+  }, true);
+</script>

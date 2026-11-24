@@ -182,3 +182,23 @@ button:disabled {
 @media (min-width: 36rem) {
   .filtros { grid-template-columns: 2fr 1fr; }
 }
+
+.barra-acciones,
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.barra-acciones { justify-content: space-between; }
+
+.fila:has(.editar-elemento:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.editar-elemento { margin-inline-end: 0.75rem; }
+
+#unidades-registradas > .boton { justify-self: start; }
