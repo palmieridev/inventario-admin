@@ -1,5 +1,10 @@
 import { prepararClave } from '../acceso/credenciales.js';
 import { config } from '../config.js';
+import { crearElemento, crearUnidad } from '../db/consultas/catalogo_sql.js';
+import {
+  bloquearNegocioDemostracion, buscarCuentaDemostracion, insertarCuentaDemostracion, insertarNegocioDemostracion,
+  insertarPrimeraJornada,
+} from '../db/consultas/demostracion_sql.js';
 import { pool } from '../db/pool.js';
 import { enTransaccion } from '../db/transaccion.js';
 
@@ -30,46 +35,31 @@ async function cargarDatos(): Promise<void> {
 
   await enTransaccion(pool, async (cliente) => {
     for (const negocio of negocios) {
-      await cliente.query('INSERT INTO negocios (id, nombre) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING',
-        [negocio.id, negocio.nombre]);
+      const negocioId = negocio.id;
+      await insertarNegocioDemostracion(cliente, { negocioId, nombre: negocio.nombre });
       // Una segunda ejecución conserva cuentas, jornadas, catálogo y conteos existentes.
-      await cliente.query('SELECT id FROM negocios WHERE id = $1 FOR UPDATE', [negocio.id]);
+      await bloquearNegocioDemostracion(cliente, { negocioId });
 
       for (const rol of ['admin', 'staff'] as const) {
         const cuenta = 'demo.' + rol + '.' + negocio.sufijo;
-        const { rows: [actual] } = await cliente.query<{ negocio_id: string; rol: string }>(
-          'SELECT negocio_id, rol FROM usuarios WHERE cuenta = $1',
-          [cuenta],
-        );
+        const actual = await buscarCuentaDemostracion(cliente, { cuenta });
         if (actual) {
-          if (actual.negocio_id !== negocio.id || actual.rol !== rol) {
+          if (actual.negocioId !== negocioId || actual.rol !== rol) {
             throw new Error('Una cuenta de demostración ya está asignada a otro negocio o rol.');
           }
           continue;
         }
-        await cliente.query(
-          'INSERT INTO usuarios (negocio_id, nombre, cuenta, clave_derivada, rol) VALUES ($1, $2, $3, $4, $5)',
-          [negocio.id, rol === 'admin' ? 'Encargado de prueba' : 'Personal de prueba', cuenta, await prepararClave(contrasena), rol],
-        );
+        await insertarCuentaDemostracion(cliente, {
+          negocioId, nombre: rol === 'admin' ? 'Encargado de prueba' : 'Personal de prueba',
+          cuenta, claveDerivada: await prepararClave(contrasena), rol,
+        });
       }
 
       // El catálogo se carga solo al crear la jornada de demostración.
-      const primera = await cliente.query(
-        'INSERT INTO jornadas (negocio_id) SELECT $1::uuid WHERE NOT EXISTS ' +
-        '(SELECT 1 FROM jornadas WHERE negocio_id = $1)',
-        [negocio.id],
-      );
-      if (!primera.rowCount) continue;
-
-      const { rows: [unidad] } = await cliente.query<{ id: string }>(
-        "INSERT INTO unidades_medida (negocio_id, nombre, simbolo, decimales) VALUES ($1, 'Pieza', 'pza', 0) RETURNING id",
-        [negocio.id],
-      );
+      if (!await insertarPrimeraJornada(cliente, { negocioId })) continue;
+      const unidad = await crearUnidad(cliente, { negocioId, nombre: 'Pieza', simbolo: 'pza', decimales: 0 });
       for (const elemento of negocio.elementos) {
-        await cliente.query(
-          'INSERT INTO elementos_inventario (negocio_id, unidad_id, categoria, nombre, variante) VALUES ($1, $2, $3, $4, $5)',
-          [negocio.id, unidad!.id, elemento.categoria, elemento.nombre, elemento.variante],
-        );
+        await crearElemento(cliente, { negocioId, unidadId: unidad!.id, ...elemento, activo: true });
       }
     }
   });
