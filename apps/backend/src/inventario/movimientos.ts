@@ -104,9 +104,9 @@ export function crearServicioMovimientos(pool: Pool) {
           'WHERE negocio_id = $1 AND id = $2 FOR SHARE', [negocioId, datos.jornadaId],
         );
         if (!jornada) throw new ErrorInventario('no_encontrado', 'La jornada no existe en el negocio.');
-        const { rows: [operacion] } = await cliente.query<{ id: string; registrada_en: Date }>(
+        const { rows: [operacion] } = await cliente.query<{ id: string }>(
           'INSERT INTO operaciones_inventario (negocio_id, autor_id, jornada_id, tipo, clave_reintento) ' +
-          'VALUES ($1, $2, $3, $4, $5) ON CONFLICT (negocio_id, clave_reintento) DO NOTHING RETURNING id, registrada_en',
+          'VALUES ($1, $2, $3, $4, $5) ON CONFLICT (negocio_id, clave_reintento) DO NOTHING RETURNING id',
           [negocioId, usuario.id, datos.jornadaId, datos.tipo, clave],
         );
         if (!operacion) {
@@ -121,6 +121,7 @@ export function crearServicioMovimientos(pool: Pool) {
           'VALUES ($1, $2, $3, $4, $5)',
           [negocioId, operacion.id, JSON.stringify(datos), datos.motivo, datos.observacion],
         );
+        const saldos: { linea: Linea; anterior: string; siguiente: string }[] = [];
         // Orden estable para bloquear todos los elementos de una tanda sin invertir los bloqueos.
         for (const linea of datos.lineas) {
           const { rows: [elemento] } = await cliente.query<{ unidad_id: string; activo: boolean; categoria: string }>(
@@ -150,14 +151,24 @@ export function crearServicioMovimientos(pool: Pool) {
           if (!saldo) throw new ErrorInventario('conteo_requerido', 'Registra primero el conteo inicial del elemento.');
           if (saldo.insuficiente) throw new ErrorInventario('saldo_insuficiente', 'La cantidad supera la existencia. Revisa el saldo y la captura.');
           if (saldo.excedido) throw new ErrorInventario('saldo_excedido', 'El saldo resultante excede el límite de doce cifras enteras.');
+          saldos.push({ linea, anterior: saldo.anterior, siguiente: saldo.siguiente });
+        }
+        // La fecha debe reflejar el orden de los cambios sobre un mismo elemento.
+        await cliente.query(
+          'UPDATE operaciones_inventario SET registrada_en = clock_timestamp() WHERE negocio_id = $1 AND id = $2',
+          [negocioId, operacion.id],
+        );
+        for (const { linea, anterior, siguiente } of saldos) {
           await cliente.query(
             'INSERT INTO lineas_movimiento (negocio_id, operacion_id, elemento_id, unidad_id, saldo_anterior, saldo_resultante) ' +
             'VALUES ($1, $2, $3, $4, $5, $6)',
-            [negocioId, operacion.id, linea.elementoId, linea.unidadId, saldo.anterior, saldo.siguiente],
+            [negocioId, operacion.id, linea.elementoId, linea.unidadId, anterior, siguiente],
           );
           await cliente.query(
-            'UPDATE existencias_inventario SET cantidad = $3, actualizada_en = $4 WHERE negocio_id = $1 AND elemento_id = $2',
-            [negocioId, linea.elementoId, saldo.siguiente, operacion.registrada_en],
+            'UPDATE existencias_inventario e SET cantidad = $3, actualizada_en = o.registrada_en ' +
+            'FROM operaciones_inventario o WHERE e.negocio_id = $1 AND e.elemento_id = $2 ' +
+            'AND o.negocio_id = e.negocio_id AND o.id = $4',
+            [negocioId, linea.elementoId, siguiente, operacion.id],
           );
         }
         return consultar(cliente, negocioId, operacion.id);

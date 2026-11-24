@@ -58,7 +58,7 @@ Aplicar `pnpm db:migrate` antes de usar estas rutas. La migración 00003 agrega 
 - `POST /api/inventario/movimientos`: registra una operación completa o recupera su confirmación, con HTTP 200.
 - `GET /api/inventario/movimientos/:id`: recupera la operación y sus líneas dentro del negocio de la sesión. El listado y los filtros de historial pertenecen a una actividad posterior.
 
-Ambas rutas requieren sesión. `admin` y `staff` registran compras, tandas, salidas, consumos y mermas; solo `admin` registra ajustes. Cada solicitud incluye `jornadaId` y `claveReintento` (UUID), además de `observacion` opcional (hasta 500 caracteres). La fecha `registradaEn` la asigna el servidor y se devuelve en ISO 8601 UTC; la pertenencia a una jornada no cambia al pasar medianoche. No se admiten capturas nuevas en jornadas futuras o cerradas.
+Ambas rutas requieren sesión. `admin` y `staff` registran compras, tandas, salidas, consumos y mermas; solo `admin` registra ajustes. Cada solicitud incluye `jornadaId` y `claveReintento` (UUID), además de `observacion` opcional (hasta 500 caracteres). El servidor asigna una sola fecha `registradaEn` después de bloquear todos los elementos de la operación, la usa para actualizar sus saldos y la devuelve en ISO 8601 UTC; la pertenencia a una jornada no cambia al pasar medianoche. No se admiten capturas nuevas en jornadas futuras o cerradas.
 
 | `tipo` | Datos específicos | Efecto |
 | --- | --- | --- |

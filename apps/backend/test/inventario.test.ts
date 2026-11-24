@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
+import { setTimeout as esperar } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { prepararClave } from '../src/acceso/credenciales.js';
@@ -9,6 +10,7 @@ import { createApp } from '../src/app.js';
 import { crearServicioApertura } from '../src/inventario/apertura.js';
 import { crearServicioMovimientos } from '../src/inventario/movimientos.js';
 import { crearCatalogo } from '../src/inventario/catalogo.js';
+import { texto } from '../src/inventario/validacion.js';
 
 const url = process.env.INVENTARIO_TEST_DATABASE_URL;
 if (!url) throw new Error('Configura INVENTARIO_TEST_DATABASE_URL con una base de pruebas.');
@@ -661,6 +663,63 @@ test('A08: serializa reintentos y salidas concurrentes sin perder precisión dec
   await pool.query('UPDATE jornadas SET cerrada_en = now() WHERE id = $1', [p.jornadaId]);
   assert.deepEqual(await movimientos.registrar(p.staff, compra), resultados[0]);
   await assert.rejects(movimientos.registrar(p.staff, { ...compra, claveReintento: randomUUID() }), { codigo: 'jornada_cerrada' });
+});
+
+test('A08: fecha el saldo y todas las líneas en el orden de aplicación de los movimientos', async () => {
+  const p = await escenarioMovimientos();
+  const conexionesDemoradas = new pg.Pool({ connectionString: conexion.toString(), max: 1 });
+  const bloqueo = await pool.connect();
+  let movimientoDemorado;
+  try {
+    const { rows: [conexionDemorada] } = await conexionesDemoradas.query('SELECT pg_backend_pid() AS pid');
+    await bloqueo.query('BEGIN');
+    await bloqueo.query('SELECT id FROM usuarios WHERE id = $1 FOR UPDATE', [p.staff]);
+
+    const compra = { tipo: 'compra', jornadaId: p.jornadaId,
+      lineas: [{ ...p.bebida, cantidad: '1' }, { ...p.preparado, cantidad: '1' }] };
+    movimientoDemorado = crearServicioMovimientos(conexionesDemoradas).registrar(p.staff,
+      { ...compra, claveReintento: randomUUID() });
+    void movimientoDemorado.catch(() => undefined);
+
+    const limite = Date.now() + 5000;
+    while (true) {
+      const { rows: [estado] } = await pool.query(
+        'SELECT cardinality(pg_blocking_pids($1)) > 0 AS espera', [conexionDemorada.pid]);
+      if (estado.espera) break;
+      assert.ok(Date.now() < limite, 'La primera compra no llegó al bloqueo de la cuenta.');
+      await esperar(10);
+    }
+
+    const aplicadaPrimero = await movimientos.registrar(p.admin, { ...compra, claveReintento: randomUUID() });
+    await bloqueo.query('COMMIT');
+    const aplicadaDespues = await movimientoDemorado;
+    for (const linea of aplicadaDespues.lineas) {
+      const anterior = aplicadaPrimero.lineas.find((otra) => otra.elementoId === linea.elementoId);
+      assert.equal(linea.saldoAnterior, anterior?.saldoResultante);
+      const saldo = await inventario.consultarExistencia(p.admin, linea.elementoId);
+      assert.equal(saldo?.cantidad, linea.saldoResultante);
+      assert.equal(saldo?.actualizadaEn.toISOString(), aplicadaDespues.registradaEn);
+    }
+    const { rows: [orden] } = await pool.query(
+      'SELECT primera.registrada_en < segunda.registrada_en AS cronologico ' +
+      'FROM operaciones_inventario primera, operaciones_inventario segunda WHERE primera.id = $1 AND segunda.id = $2',
+      [aplicadaPrimero.operacionId, aplicadaDespues.operacionId]);
+    assert.equal(orden.cronologico, true);
+  } finally {
+    try {
+      await bloqueo.query('ROLLBACK');
+    } finally {
+      bloqueo.release();
+      await movimientoDemorado?.catch(() => undefined);
+      await conexionesDemoradas.end();
+    }
+  }
+});
+
+test('A08: la validación de texto rechaza Unicode mal formado y conserva caracteres válidos', () => {
+  const invalido = String.fromCharCode(0xd800);
+  assert.throws(() => texto(invalido, 'La observación', 500), { codigo: 'datos_invalidos' });
+  assert.equal(texto('Daño en traslado 📦', 'La observación', 500), 'Daño en traslado 📦');
 });
 
 test('A08: valida unidad, duplicados, conteo previo, límite de saldo y pertenencia', async () => {

@@ -47,7 +47,7 @@ export function identificador(valor: unknown, campo: string): string {
 export function texto(valor: unknown, campo: string, maximo: number): string {
   if (typeof valor !== 'string') invalidos(campo + ' debe ser texto.');
   const limpio = valor.trim();
-  if (!limpio || [...limpio].length > maximo || /\p{Cc}/u.test(limpio)) {
+  if (!limpio || [...limpio].length > maximo || /[\p{Cc}\p{Cs}]/u.test(limpio)) {
     invalidos(campo + ' debe contener entre 1 y ' + maximo + ' caracteres válidos.');
   }
   return limpio;
