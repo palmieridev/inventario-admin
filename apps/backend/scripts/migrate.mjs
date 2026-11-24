@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const command = process.argv[2];
@@ -19,7 +20,8 @@ function connectionString() {
   }
 
   const host = required('POSTGRES_HOST');
-  const url = new URL('postgresql://' + host + ':' + port);
+  const hostEnUrl = isIP(host) === 6 ? '[' + host + ']' : host;
+  const url = new URL('postgresql://' + hostEnUrl + ':' + port);
   if (url.username || url.password || url.pathname || url.search || url.hash) {
     throw new Error('POSTGRES_HOST debe contener solo el nombre o la dirección del servidor.');
   }
