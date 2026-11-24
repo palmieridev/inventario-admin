@@ -2,11 +2,11 @@
 
 Prototipo web orientado al uso móvil para la gestión de inventarios en microempresas de comercio informal de alimentos de las calles aledañas a la UPIICSA, Iztacalco, Ciudad de México.
 
-El proyecto busca apoyar el registro de existencias durante la preparación y la atención del puesto. La consulta pública será una salida limitada del inventario: cada negocio podrá autorizar la publicación de su oferta, disponibilidad y datos básicos de atención.
+El proyecto busca apoyar el registro interno de existencias durante la preparación y la atención del puesto.
 
 ## Estado del proyecto
 
-El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el esquema y los servicios internos de catálogo y conteo de apertura. A06 los conectará con el acceso de cada cuenta.
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. Las pantallas correspondientes se desarrollarán en A07.
 
 ## Estructura
 
@@ -34,8 +34,8 @@ Se requieren Node.js 24 LTS o superior, pnpm 11.1.1, Docker con Compose y Goose 
 Desde la raíz del repositorio:
 
 ```bash
-cp .env.example .env
-pnpm install
+test -f .env || cp .env.example .env
+pnpm install --frozen-lockfile
 pnpm db:up
 pnpm db:check
 pnpm db:migrate
@@ -59,6 +59,23 @@ curl http://127.0.0.1:3000/ready
 
 `/health` confirma que la API responde. `/ready` realiza `SELECT 1` contra PostgreSQL y devuelve HTTP 503 si la base no está disponible.
 
+### Datos de demostración
+
+Después de aplicar las migraciones, se pueden cargar dos negocios ficticios con sus cuentas, una jornada y un catálogo breve. Desde Bash, introducir una contraseña exclusiva de desarrollo de al menos 12 caracteres.
+
+```bash
+read -rs -p 'Contraseña de demostración: ' INVENTARIO_DEV_PASSWORD
+INVENTARIO_DEV_PASSWORD="$INVENTARIO_DEV_PASSWORD" pnpm db:seed:dev
+unset INVENTARIO_DEV_PASSWORD
+```
+
+| Negocio | Propietario o encargado | Personal que atiende clientes |
+| --- | --- | --- |
+| Tamales de demostración | `demo.admin.tamales` | `demo.staff.tamales` |
+| Bebidas de demostración | `demo.admin.bebidas` | `demo.staff.bebidas` |
+
+Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga se conservan las cuentas, las contraseñas y el inventario existentes. Con `pnpm dev`, el servidor de Astro reenvía `/api` al backend local para que el frontend pueda utilizar la sesión desde el mismo origen. Las rutas y permisos se documentan en [apps/backend/README.md](apps/backend/README.md).
+
 ### Comandos del monorepositorio
 
 | Comando | Función |
@@ -66,11 +83,12 @@ curl http://127.0.0.1:3000/ready
 | `pnpm dev` | Compila los contratos e inicia sus cambios en modo observación junto con frontend y backend. |
 | `pnpm build` | Compila los paquetes respetando sus dependencias internas. |
 | `pnpm typecheck` | Compila los contratos y revisa TypeScript y las plantillas Astro. |
-| `pnpm test:inventario` | Comprueba el catálogo y el conteo inicial en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
+| `pnpm test:inventario` | Comprueba sesiones, permisos, catálogo y conteo inicial en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
 | `pnpm db:up` | Inicia PostgreSQL en segundo plano. |
 | `pnpm db:check` | Comprueba si PostgreSQL acepta conexiones. |
 | `pnpm db:migrate` | Aplica las migraciones SQL pendientes de `apps/backend/migrations/`. |
 | `pnpm db:migrate:status` | Muestra qué migraciones ya se aplicaron. |
+| `pnpm db:seed:dev` | Carga cuentas y datos ficticios en PostgreSQL de desarrollo local. |
 | `pnpm db:logs` | Muestra los registros de PostgreSQL. |
 | `pnpm db:psql` | Abre la consola SQL dentro del contenedor. |
 | `pnpm db:down` | Detiene PostgreSQL y conserva el volumen de datos. |
@@ -87,7 +105,6 @@ Los comandos de migración usan las variables `POSTGRES_*` de `.env` para desarr
 - Registrar correcciones autorizadas que conserven el movimiento original, el saldo anterior, el ajuste, el motivo y la autoría.
 - Consultar existencias y movimientos por jornada, elemento, tipo y persona que registra.
 - Confirmar la disponibilidad de cada producto o variante como disponible, agotado o no ofrecido.
-- Autorizar y retirar la publicación de información para consulta sin cuenta.
 
 Las relaciones entre componentes y porciones, los avisos de existencias bajas y los recordatorios de revisión de jornada son funciones complementarias pendientes de priorización.
 
@@ -95,9 +112,8 @@ Las relaciones entre componentes y porciones, los avisos de existencias bajas y 
 
 | Rol | Funciones previstas |
 | --- | --- |
-| Persona responsable | Administra catálogo y accesos, realiza tareas operativas, autoriza correcciones y decide qué información se publica. |
-| Personal operativo autorizado | Registra movimientos, consulta existencias e historial operativo y confirma disponibilidad dentro de su negocio. |
-| Cliente | Consulta sin cuenta únicamente la oferta, la disponibilidad y los datos de atención autorizados. |
+| Propietario o encargado (`admin`) | Administra el catálogo y los accesos, realiza tareas operativas y autoriza correcciones. |
+| Personal que atiende clientes (`staff`) | Registra movimientos, consulta existencias e historial operativo y confirma disponibilidad dentro de su negocio. |
 
 ## Reglas principales
 
@@ -107,7 +123,6 @@ Las relaciones entre componentes y porciones, los avisos de existencias bajas y 
 - Una salida superior al saldo requiere revisar la cantidad o corregir la existencia; no genera un saldo negativo silencioso.
 - La existencia registrada y la disponibilidad se distinguen. Una reposición no revierte automáticamente un agotamiento confirmado manualmente.
 - La interfaz distinguirá los cambios confirmados de los intentos pendientes o fallidos. Los reintentos no deben duplicar movimientos.
-- La respuesta pública excluye cantidades internas, movimientos, mermas y datos personales no autorizados, e identifica la última actualización confirmada.
 
 ## Arquitectura y responsabilidades
 
@@ -116,7 +131,7 @@ El monorepositorio utiliza espacios de trabajo de pnpm. Los paquetes internos se
 | Componente | Tecnología prevista | Responsabilidad |
 | --- | --- | --- |
 | Frontend | Astro y TypeScript | Formularios y consultas adaptables al teléfono. |
-| Backend | TypeScript y Fastify | Base de la API y conexión a PostgreSQL; posteriormente incorporará validación, permisos por negocio y reglas de inventario y publicación. |
+| Backend | TypeScript y Fastify | API interna, validación, permisos por negocio, reglas de inventario y conexión a PostgreSQL. |
 | Contratos compartidos | TypeScript | Tipos de solicitudes y respuestas entre frontend y backend. |
 | Persistencia | PostgreSQL | Existencias, movimientos, autoría, autorizaciones y transacciones. |
 
@@ -124,7 +139,7 @@ Los contratos generan JavaScript ESM y declaraciones de tipos. Frontend y backen
 
 ## Límites
 
-Quedan fuera cobros, pedidos, compras en línea, facturación, contabilidad, gestión fiscal, reparto y predicción automática de demanda. Los precios públicos, si se autorizan, serán informativos.
+Quedan fuera la vista para clientes, los cobros, los pedidos, las compras en línea, la facturación, la contabilidad, la gestión fiscal, el reparto y la predicción automática de demanda.
 
 El prototipo no determinará la inocuidad de los alimentos ni implicará una certificación normativa. La reducción de mermas, la exactitud del inventario y la utilidad durante la jornada deberán evaluarse; no se consideran beneficios comprobados.
 
@@ -132,4 +147,4 @@ El prototipo no determinará la inocuidad de los alimentos ni implicará una cer
 
 El diseño de referencia se mantiene en la carpeta `design/` del espacio de trabajo académico, fuera de este repositorio. Los capítulos I–IV documentan el contexto, los requisitos y los procesos propuestos; este repositorio reunirá la implementación y su documentación técnica.
 
-La evaluación prevista contempla tareas de consulta de existencias, registro de movimientos, confirmación de disponibilidad y separación entre información interna y pública. Se utilizarán datos ficticios para el desarrollo; las pruebas con negocios y la publicación de sus datos requerirán las autorizaciones correspondientes.
+La evaluación prevista contempla tareas de consulta de existencias, registro de movimientos y confirmación de disponibilidad. El desarrollo utiliza datos ficticios. Las pruebas con negocios requerirán las autorizaciones correspondientes.

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { prepararClave } from '../src/acceso/credenciales.js';
+import { createApp } from '../src/app.js';
 import { crearServicioApertura } from '../src/inventario/apertura.js';
 import { crearCatalogo } from '../src/inventario/catalogo.js';
 
@@ -15,6 +17,7 @@ const base = new pg.Pool({ connectionString: url });
 const conexion = new URL(url);
 conexion.searchParams.set('options', '-csearch_path=' + esquema);
 const pool = new pg.Pool({ connectionString: conexion.toString() });
+const app = createApp(new pg.Pool({ connectionString: conexion.toString() }), { cookieSegura: true, logger: false });
 const catalogo = crearCatalogo(pool);
 const inventario = crearServicioApertura(pool);
 const migraciones = fileURLToPath(new URL('../migrations/', import.meta.url));
@@ -29,6 +32,7 @@ before(async () => {
 });
 
 after(async () => {
+  await app.close();
   await pool.end();
   try {
     await base.query('DROP SCHEMA IF EXISTS ' + esquema + ' CASCADE');
@@ -48,6 +52,156 @@ async function negocio(nombre: string) {
   );
   return { id, admin, staff };
 }
+
+const contrasena = 'Credencial ficticia para pruebas';
+
+async function asignarCuenta(id: string, cuenta: string) {
+  await pool.query('UPDATE usuarios SET cuenta = $2, clave_derivada = $3 WHERE id = $1',
+    [id, cuenta, await prepararClave(contrasena)]);
+}
+
+async function iniciarSesion(cuenta: string, remoteAddress = '127.0.0.1') {
+  const respuesta = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta, contrasena }, remoteAddress,
+  });
+  assert.equal(respuesta.statusCode, 200, respuesta.body);
+  const cabecera = respuesta.headers['set-cookie'];
+  assert.equal(typeof cabecera, 'string');
+  return { respuesta, cabecera, cookie: cabecera.split(';')[0]! };
+}
+
+test('emite sesiones opacas, consulta la cuenta vigente y cierra o expira cada sesión por separado', async () => {
+  const puesto = await negocio('Puesto con acceso');
+  await asignarCuenta(puesto.admin, 'admin.sesion');
+  const anonima = await app.inject({ method: 'GET', url: '/api/sesion' });
+  assert.equal(anonima.statusCode, 401);
+
+  const rechazo = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta: 'admin.sesion', contrasena: 'incorrecta' },
+  });
+  assert.equal(rechazo.statusCode, 401);
+  assert.equal(rechazo.json().codigo, 'credenciales_invalidas');
+  assert.equal(rechazo.headers['set-cookie'], undefined);
+
+  const primera = await iniciarSesion(' ADMIN.SESION ');
+  const segunda = await iniciarSesion('admin.sesion');
+  assert.notEqual(primera.cookie, segunda.cookie);
+  assert.match(primera.cabecera, /HttpOnly/);
+  assert.match(primera.cabecera, /SameSite=Strict/);
+  assert.match(primera.cabecera, /Secure/);
+  assert.equal(primera.respuesta.headers['cache-control'], 'no-store');
+  const perfil = { id: puesto.admin, negocioId: puesto.id, nombre: 'Encargado', rol: 'admin' };
+  assert.deepEqual(primera.respuesta.json(), perfil);
+  const token = primera.cookie.split('=')[1]!;
+  const huella = createHash('sha256').update(token).digest('hex');
+  assert.equal((await pool.query('SELECT usuario_id FROM sesiones WHERE huella = $1', [huella])).rows[0].usuario_id,
+    puesto.admin);
+
+  const consultar = (cookie: string) => app.inject({ method: 'GET', url: '/api/sesion', headers: { cookie } });
+  assert.deepEqual((await consultar(primera.cookie)).json(), perfil);
+
+  const cierre = await app.inject({ method: 'DELETE', url: '/api/sesion', headers: { cookie: primera.cookie } });
+  assert.equal(cierre.statusCode, 204);
+  assert.match(String(cierre.headers['set-cookie']), /inventario_sesion=;/);
+  assert.equal((await consultar(primera.cookie)).statusCode, 401);
+  assert.equal((await consultar(segunda.cookie)).statusCode, 200);
+
+  await pool.query("UPDATE sesiones SET vence_en = now() - interval '1 second' WHERE usuario_id = $1", [puesto.admin]);
+  assert.equal((await consultar(segunda.cookie)).statusCode, 401);
+});
+
+test('limita los intentos de inicio de sesión por dirección', async () => {
+  const intentar = (remoteAddress: string) => app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta: 'cuenta.inexistente' }, remoteAddress,
+  });
+  for (let intento = 0; intento < 10; intento++) {
+    assert.equal((await intentar('192.0.2.10')).statusCode, 401);
+  }
+  const limitado = await intentar('192.0.2.10');
+  assert.equal(limitado.statusCode, 429, limitado.body);
+  assert.equal(limitado.json().codigo, 'limite_de_intentos');
+  assert.equal((await intentar('192.0.2.11')).statusCode, 401);
+});
+
+test('separa el cupo de inicio de sesión de dos clientes que usan el mismo proxy de confianza', async () => {
+  const puesto = await negocio('Puesto con proxy');
+  const otro = await negocio('Puesto vecino con proxy');
+  await asignarCuenta(puesto.admin, 'admin.proxy');
+  await asignarCuenta(otro.staff, 'staff.proxy');
+  const ipProxy = '192.0.2.80';
+  const appProxy = createApp(new pg.Pool({ connectionString: conexion.toString() }), {
+    cookieSegura: true, logger: false, proxiesDeConfianza: [ipProxy],
+  });
+  try {
+    const iniciar = async (cuenta: string, ipCliente: string) => {
+      const respuesta = await appProxy.inject({
+        method: 'POST', url: '/api/sesion', remoteAddress: ipProxy,
+        headers: { 'x-forwarded-for': ipCliente }, payload: { cuenta, contrasena },
+      });
+      assert.equal(respuesta.statusCode, 200, respuesta.body);
+      return respuesta.headers['x-ratelimit-remaining'];
+    };
+    assert.equal(await iniciar('admin.proxy', '198.51.100.25'), '9');
+    assert.equal(await iniciar('admin.proxy', '198.51.100.25'), '8');
+    assert.equal(await iniciar('staff.proxy', '198.51.100.26'), '9');
+  } finally {
+    await appProxy.close();
+  }
+});
+
+test('restringe el alta y la revocación a admin del negocio e invalida todas las sesiones de staff', async () => {
+  const puesto = await negocio('Puesto de accesos');
+  const otro = await negocio('Puesto vecino de accesos');
+  await asignarCuenta(puesto.admin, 'admin.personal');
+  const direccion = '192.0.2.20';
+  const admin = await iniciarSesion('admin.personal', direccion);
+  const alta = { cuenta: 'Staff.Alta', contrasena, nombre: 'Caja' };
+  const solicitar = (cookie: string, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
+    app.inject({ method, url, headers: { cookie }, payload });
+  const crear = await solicitar(admin.cookie, 'POST', '/api/personal', {
+    ...alta, negocioId: otro.id, rol: 'admin',
+  });
+  assert.equal(crear.statusCode, 201, crear.body);
+  const personalId = crear.json().id;
+  assert.deepEqual(crear.json(), { id: personalId, cuenta: 'staff.alta', nombre: 'Caja', activo: true });
+  const repetida = await solicitar(admin.cookie, 'POST', '/api/personal', alta);
+  assert.equal(repetida.statusCode, 409);
+
+  const primera = await iniciarSesion('staff.alta', direccion);
+  const segunda = await iniciarSesion('staff.alta', direccion);
+  assert.deepEqual(primera.respuesta.json(), { id: personalId, negocioId: puesto.id, nombre: 'Caja', rol: 'staff' });
+  assert.equal((await solicitar(primera.cookie, 'POST', '/api/personal', alta)).statusCode, 403);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/personal')).statusCode, 403);
+  const cambiar = (cookie: string, id: string, payload: object) =>
+    solicitar(cookie, 'PATCH', '/api/personal/' + id, payload);
+  assert.equal((await cambiar(primera.cookie, personalId, { activo: false })).statusCode, 403);
+  assert.equal((await cambiar(admin.cookie, otro.staff, { activo: false })).statusCode, 404);
+  assert.equal((await cambiar(admin.cookie, puesto.admin, { activo: false })).statusCode, 404);
+  const listado = await solicitar(admin.cookie, 'GET', '/api/personal');
+  assert.equal(listado.statusCode, 200);
+  assert.deepEqual(listado.json().map((p: { id: string }) => p.id).sort(), [personalId, puesto.staff].sort());
+
+  const revocar = await cambiar(admin.cookie, personalId, { activo: false });
+  assert.equal(revocar.statusCode, 200);
+  assert.equal(revocar.json().activo, false);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await solicitar(segunda.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  const inactiva = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: alta, remoteAddress: direccion,
+  });
+  assert.equal(inactiva.statusCode, 401);
+
+  assert.equal((await cambiar(admin.cookie, personalId, { activo: true })).statusCode, 200);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await solicitar(segunda.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await iniciarSesion('staff.alta', direccion)).respuesta.json().id, personalId);
+
+  const previa = await cambiar(admin.cookie, puesto.staff, {
+    activo: true, credenciales: { cuenta: 'staff.anterior', contrasena },
+  });
+  assert.equal(previa.statusCode, 200, previa.body);
+  assert.equal((await iniciarSesion('staff.anterior', direccion)).respuesta.json().id, puesto.staff);
+});
 
 test('mantiene categorías, variantes y unidades independientes por negocio', async () => {
   const puesto = await negocio('Tamales de prueba');
@@ -107,6 +261,90 @@ async function abrirJornada(negocioId: string) {
   await pool.query('INSERT INTO jornadas (id, negocio_id) VALUES ($1, $2)', [id, negocioId]);
   return id;
 }
+
+test('autoriza catálogo y conteo mediante la sesión, aísla dos negocios y conserva la autoría al revocar', async () => {
+  const tamales = await negocio('Tamales de prueba A06');
+  const bebidas = await negocio('Bebidas de prueba A06');
+  await Promise.all([
+    asignarCuenta(tamales.admin, 'admin.tamales.a06'),
+    asignarCuenta(tamales.staff, 'staff.tamales.a06'),
+    asignarCuenta(bebidas.admin, 'admin.bebidas.a06'),
+    asignarCuenta(bebidas.staff, 'staff.bebidas.a06'),
+  ]);
+  const direccion = '192.0.2.30';
+  const adminTamales = await iniciarSesion('admin.tamales.a06', direccion);
+  const staffTamales = await iniciarSesion('staff.tamales.a06', direccion);
+  const adminBebidas = await iniciarSesion('admin.bebidas.a06', direccion);
+  const staffBebidas = await iniciarSesion('staff.bebidas.a06', direccion);
+  const jornadaTamales = await abrirJornada(tamales.id);
+  const jornadaBebidas = await abrirJornada(bebidas.id);
+  const ruta = '/api/inventario';
+  const solicitar = (cookie: string, method: 'GET' | 'POST' | 'PUT', path: string, payload?: object) =>
+    app.inject({ method, url: ruta + path, headers: { cookie }, payload });
+
+  const identificadorAjeno = '?negocioId=' + tamales.id + '&usuarioId=' + tamales.admin;
+  assert.equal((await solicitar('', 'GET', '/elementos' + identificadorAjeno)).statusCode, 401);
+  assert.equal((await solicitar('', 'POST', '/aperturas', { usuarioId: tamales.admin })).statusCode, 401);
+  assert.equal((await solicitar(staffTamales.cookie, 'GET', '/jornadas')).json()[0].id, jornadaTamales);
+  assert.deepEqual(
+    (await solicitar(staffBebidas.cookie, 'GET', '/jornadas' + identificadorAjeno))
+      .json().map((j: { id: string }) => j.id),
+    [jornadaBebidas],
+  );
+
+  const datosUnidad = { nombre: 'Pieza', simbolo: 'pza', decimales: 0 };
+  const unidad = await solicitar(adminTamales.cookie, 'POST', '/unidades', { ...datosUnidad, negocioId: bebidas.id });
+  assert.equal(unidad.statusCode, 201, unidad.body);
+  const unidadId = unidad.json().id;
+  const editarUnidad = '/unidades/' + unidadId;
+  assert.equal((await solicitar(staffTamales.cookie, 'POST', '/unidades', datosUnidad)).statusCode, 403);
+  assert.equal((await solicitar(staffTamales.cookie, 'PUT', editarUnidad, datosUnidad)).statusCode, 403);
+  assert.equal((await solicitar(adminBebidas.cookie, 'PUT', editarUnidad, datosUnidad)).statusCode, 404);
+  assert.equal((await solicitar(adminTamales.cookie, 'PUT', editarUnidad, datosUnidad)).statusCode, 200);
+  assert.deepEqual((await solicitar(staffTamales.cookie, 'GET', '/unidades')).json(), [unidad.json()]);
+  assert.deepEqual((await solicitar(staffBebidas.cookie, 'GET', '/unidades')).json(), []);
+
+  const datosElemento = { unidadId, categoria: 'preparado', nombre: 'Tamal', variante: 'Verde' };
+  const alta = await solicitar(adminTamales.cookie, 'POST', '/elementos', datosElemento);
+  assert.equal(alta.statusCode, 201, alta.body);
+  const elementoId = alta.json().id;
+  const rutaElemento = '/elementos/' + elementoId;
+  assert.equal((await solicitar(staffTamales.cookie, 'POST', '/elementos', datosElemento)).statusCode, 403);
+  assert.equal((await solicitar(staffTamales.cookie, 'PUT', rutaElemento, datosElemento)).statusCode, 403);
+  assert.equal((await solicitar(adminBebidas.cookie, 'PUT', rutaElemento, datosElemento)).statusCode, 404);
+  assert.equal((await solicitar(adminTamales.cookie, 'PUT', rutaElemento, datosElemento)).statusCode, 200);
+  assert.deepEqual((await solicitar(staffTamales.cookie, 'GET', '/elementos')).json(), [alta.json()]);
+  assert.deepEqual((await solicitar(staffBebidas.cookie, 'GET', '/elementos' + identificadorAjeno)).json(), []);
+  assert.equal((await solicitar(staffBebidas.cookie, 'GET', rutaElemento + '/existencia')).statusCode, 404);
+  assert.deepEqual((await solicitar(staffTamales.cookie, 'GET', rutaElemento + '/existencia')).json(), { existencia: null });
+
+  const datos = {
+    elementoId, unidadId, jornadaId: jornadaTamales, cantidad: '10', claveReintento: randomUUID(),
+  };
+  assert.equal((await solicitar(staffBebidas.cookie, 'POST', '/aperturas', {
+    ...datos, jornadaId: jornadaBebidas, usuarioId: tamales.staff, negocioId: tamales.id,
+  })).statusCode, 404);
+  assert.equal((await solicitar(staffTamales.cookie, 'POST', '/aperturas', { ...datos, jornadaId: jornadaBebidas }))
+    .statusCode, 404);
+  const apertura = await solicitar(staffTamales.cookie, 'POST', '/aperturas', { ...datos, autorId: tamales.admin });
+  assert.equal(apertura.statusCode, 200, apertura.body);
+  assert.equal(apertura.json().autorId, tamales.staff);
+  assert.deepEqual((await solicitar(staffTamales.cookie, 'POST', '/aperturas', datos)).json(), apertura.json());
+
+  assert.equal((await app.inject({
+    method: 'PATCH', url: '/api/personal/' + tamales.staff, headers: { cookie: adminTamales.cookie },
+    payload: { activo: false },
+  })).statusCode, 200);
+  assert.equal((await solicitar(staffTamales.cookie, 'GET', '/elementos')).statusCode, 401);
+  assert.equal((await solicitar(staffTamales.cookie, 'POST', '/aperturas', datos)).statusCode, 401);
+  const saldo = await solicitar(adminTamales.cookie, 'GET', rutaElemento + '/existencia');
+  assert.equal(saldo.json().existencia.cantidad, '10');
+  const { rows } = await pool.query(
+    'SELECT o.autor_id, u.activo FROM operaciones_inventario o JOIN usuarios u ON u.id = o.autor_id WHERE o.id = $1',
+    [apertura.json().operacionId],
+  );
+  assert.deepEqual(rows, [{ autor_id: tamales.staff, activo: false }]);
+});
 
 test('registra una apertura por variante, incluye cero y conserva el saldo entre jornadas', async () => {
   const puesto = await negocio('Tamales de apertura');

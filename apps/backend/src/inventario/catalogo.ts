@@ -1,30 +1,13 @@
+import type { DatosUnidad, Elemento, Unidad } from '@inventario/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
-import { autorizar } from './acceso.js';
+import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto, texto } from './validacion.js';
-
-type Categoria = 'insumo' | 'preparado' | 'bebida' | 'empaque';
-
-interface Unidad {
-  id: string;
-  nombre: string;
-  simbolo: string;
-  decimales: number;
-}
-
-interface Elemento {
-  id: string;
-  unidadId: string;
-  categoria: Categoria;
-  nombre: string;
-  variante: string | null;
-  activo: boolean;
-}
 
 const camposUnidad = 'id, nombre, simbolo, decimales';
 const camposElemento = 'id, unidad_id AS "unidadId", categoria, nombre, variante, activo';
 
-function datosUnidad(entrada: unknown): Omit<Unidad, 'id'> {
+function datosUnidad(entrada: unknown): DatosUnidad {
   const datos = objeto(entrada);
   const { decimales } = datos;
   if (typeof decimales !== 'number' || !Number.isInteger(decimales) || decimales < 0 || decimales > 6) {
@@ -76,9 +59,9 @@ async function comprobarUnidad(cliente: PoolClient, negocioId: string, unidadId:
 
 export function crearCatalogo(pool: Pool) {
   return {
-    listarUnidades(usuarioId: string): Promise<Unidad[]> {
+    listarUnidades(identidad: IdentidadInventario): Promise<Unidad[]> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, usuarioId);
+        const { negocio_id } = await autorizar(cliente, identidad);
         const { rows } = await cliente.query<Unidad>(
           'SELECT ' + camposUnidad + ' FROM unidades_medida WHERE negocio_id = $1 ORDER BY nombre, id',
           [negocio_id],
@@ -87,9 +70,9 @@ export function crearCatalogo(pool: Pool) {
       });
     },
 
-    crearUnidad(usuarioId: string, entrada: unknown): Promise<Unidad> {
+    crearUnidad(identidad: IdentidadInventario, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, usuarioId, 'admin');
+        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
         const datos = datosUnidad(entrada);
         const { rows: [unidad] } = await cliente.query<Unidad>(
           'INSERT INTO unidades_medida (negocio_id, nombre, simbolo, decimales) VALUES ($1, $2, $3, $4) ' +
@@ -100,9 +83,9 @@ export function crearCatalogo(pool: Pool) {
       }));
     },
 
-    modificarUnidad(usuarioId: string, unidadId: string, entrada: unknown): Promise<Unidad> {
+    modificarUnidad(identidad: IdentidadInventario, unidadId: string, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, usuarioId, 'admin');
+        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(unidadId, 'La unidad');
         const datos = datosUnidad(entrada);
         const { rows: [actual] } = await cliente.query<Unidad>(
@@ -129,9 +112,9 @@ export function crearCatalogo(pool: Pool) {
       }));
     },
 
-    listarElementos(usuarioId: string): Promise<Elemento[]> {
+    listarElementos(identidad: IdentidadInventario): Promise<Elemento[]> {
       return enTransaccion(pool, async (cliente) => {
-        const usuario = await autorizar(cliente, usuarioId);
+        const usuario = await autorizar(cliente, identidad);
         const { rows } = await cliente.query<Elemento>(
           'SELECT ' + camposElemento + ' FROM elementos_inventario ' +
           'WHERE negocio_id = $1 AND (activo OR $2) ORDER BY categoria, nombre, variante, id',
@@ -141,9 +124,9 @@ export function crearCatalogo(pool: Pool) {
       });
     },
 
-    crearElemento(usuarioId: string, entrada: unknown): Promise<Elemento> {
+    crearElemento(identidad: IdentidadInventario, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, usuarioId, 'admin');
+        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
         const datos = datosElemento(entrada);
         await comprobarUnidad(cliente, negocio_id, datos.unidadId);
         const { rows: [elemento] } = await cliente.query<Elemento>(
@@ -155,9 +138,9 @@ export function crearCatalogo(pool: Pool) {
       }));
     },
 
-    modificarElemento(usuarioId: string, elementoId: string, entrada: unknown): Promise<Elemento> {
+    modificarElemento(identidad: IdentidadInventario, elementoId: string, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, usuarioId, 'admin');
+        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(elementoId, 'El elemento');
         const datos = datosElemento(entrada);
         const { rows: [actual] } = await cliente.query<Elemento>(
