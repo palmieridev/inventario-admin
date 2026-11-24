@@ -1,5 +1,5 @@
 import type { CuentaSesion } from '@inventario/contracts';
-import { ErrorApi, solicitar } from './api';
+import { ErrorApi, solicitar, vincularCuenta } from './api';
 
 export function mostrarAviso(aviso: HTMLElement, mensaje: string): void {
   aviso.textContent = mensaje;
@@ -7,9 +7,16 @@ export function mostrarAviso(aviso: HTMLElement, mensaje: string): void {
 }
 
 export function revisarSesion(error: unknown): boolean {
-  if (!(error instanceof ErrorApi) || error.codigo !== 'sesion_requerida') return false;
-  location.replace('/?sesion=vencida');
-  return true;
+  if (!(error instanceof ErrorApi)) return false;
+  if (error.codigo === 'sesion_requerida') {
+    location.replace('/?sesion=vencida');
+    return true;
+  }
+  if (error.codigo === 'sesion_cambiada') {
+    location.replace('/inventario/?sesion=cambiada');
+    return true;
+  }
+  return false;
 }
 
 export function mensajeError(error: unknown): string {
@@ -29,6 +36,13 @@ export async function conSesion(cargar: (sesion: CuentaSesion) => void | Promise
       return;
     }
 
+    vincularCuenta(sesion.id);
+    if (new URLSearchParams(location.search).get('sesion') === 'cambiada') {
+      mostrarAviso(document.querySelector<HTMLElement>('#aviso-cuenta')!,
+        'La cuenta cambió. Abre un formulario desde el inventario de esta cuenta.');
+      history.replaceState(null, '', location.pathname);
+    }
+
     document.querySelector<HTMLElement>('#nombre-cuenta')!.textContent = sesion.nombre;
     document.querySelector<HTMLElement>('#rol-cuenta')!.textContent =
       sesion.rol === 'admin' ? 'Propietario o encargado' : 'Personal que atiende clientes';
@@ -40,6 +54,7 @@ export async function conSesion(cargar: (sesion: CuentaSesion) => void | Promise
         await solicitar<void>('/sesion', 'DELETE');
         location.replace('/');
       } catch (error) {
+        if (revisarSesion(error)) return;
         mostrarAviso(errorSalida, mensajeError(error));
         salida.disabled = false;
       }

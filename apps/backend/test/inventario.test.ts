@@ -476,3 +476,29 @@ test('serializa reintentos y aperturas repetidas en conexiones independientes', 
   assert.equal((await inventario.consultarExistencia(puesto.staff, plato.id))?.cantidad, '20');
   assert.equal((await pool.query('SELECT id FROM operaciones_inventario WHERE negocio_id = $1', [puesto.id])).rowCount, 2);
 });
+
+test('vincula las solicitudes de una pantalla con la cuenta que la cargó', async () => {
+  const anterior = await negocio('Negocio de la pantalla');
+  const actual = await negocio('Negocio de la cuenta vigente');
+  await asignarCuenta(actual.admin, 'admin.cuenta-vigente');
+  const sesion = await iniciarSesion('admin.cuenta-vigente', '192.0.2.21');
+  const encabezados = { cookie: sesion.cookie, 'x-inventario-cuenta': anterior.admin };
+  const unidad = { nombre: 'Pieza', simbolo: 'pza', decimales: 0 };
+
+  for (const [method, url, payload] of [
+    ['POST', '/api/inventario/unidades', unidad],
+    ['GET', '/api/inventario/unidades', undefined],
+    ['DELETE', '/api/sesion', undefined],
+  ] as const) {
+    const respuesta = await app.inject({ method, url, payload, headers: encabezados });
+    assert.equal(respuesta.statusCode, 409);
+    assert.equal(respuesta.json().codigo, 'sesion_cambiada');
+    assert.equal(respuesta.headers['set-cookie'], undefined);
+  }
+
+  assert.deepEqual(await catalogo.listarUnidades(actual.admin), []);
+  const headers = { ...encabezados, 'x-inventario-cuenta': actual.admin };
+  const alta = await app.inject({ method: 'POST', url: '/api/inventario/unidades', payload: unidad, headers });
+  assert.equal(alta.statusCode, 201);
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/sesion', headers })).statusCode, 204);
+});

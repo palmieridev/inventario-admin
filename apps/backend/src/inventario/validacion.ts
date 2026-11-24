@@ -3,6 +3,7 @@ type CodigoInventario =
   | 'credenciales_invalidas'
   | 'cuenta_ocupada'
   | 'sesion_requerida'
+  | 'sesion_cambiada'
   | 'acceso_denegado'
   | 'no_encontrado'
   | 'catalogo_duplicado'

@@ -19,6 +19,7 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   credenciales_invalidas: 401,
   cuenta_ocupada: 409,
   sesion_requerida: 401,
+  sesion_cambiada: 409,
   acceso_denegado: 403,
   no_encontrado: 404,
   catalogo_duplicado: 409,

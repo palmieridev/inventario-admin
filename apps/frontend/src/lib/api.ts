@@ -1,3 +1,11 @@
+import { CABECERA_CUENTA_ESPERADA } from '@inventario/contracts';
+
+let cuentaEsperada: string | undefined;
+
+export function vincularCuenta(cuentaId: string): void {
+  cuentaEsperada = cuentaId;
+}
+
 export class ErrorApi extends Error {
   constructor(readonly estado: number, readonly codigo: string, mensaje: string) {
     super(mensaje);
@@ -10,7 +18,11 @@ export async function solicitar<T>(ruta: string, metodo = 'GET', datos?: object)
       method: metodo,
       cache: 'no-store',
       signal: AbortSignal.timeout(15000),
-      ...(datos && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) }),
+      headers: {
+        ...(cuentaEsperada && { [CABECERA_CUENTA_ESPERADA]: cuentaEsperada }),
+        ...(datos && { 'Content-Type': 'application/json' }),
+      },
+      ...(datos && { body: JSON.stringify(datos) }),
     });
 
     if (respuesta.status === 204) return undefined as T;

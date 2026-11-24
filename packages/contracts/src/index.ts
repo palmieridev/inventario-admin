@@ -7,6 +7,8 @@ export interface ReadinessResponse {
   database: 'connected' | 'unavailable';
 }
 
+export const CABECERA_CUENTA_ESPERADA = 'x-inventario-cuenta';
+
 export type RolUsuario = 'admin' | 'staff';
 
 export interface InicioSesion {

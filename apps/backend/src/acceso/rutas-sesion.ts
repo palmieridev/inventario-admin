@@ -1,13 +1,20 @@
+import { CABECERA_CUENTA_ESPERADA } from '@inventario/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { huellaSesion, sesionRequerida, type IdentidadSesion } from './identidad.js';
+import { identificador } from '../inventario/validacion.js';
 import { crearServicioSesion, DURACION_SESION_SEGUNDOS } from './sesiones.js';
 
 const COOKIE_SESION = 'inventario_sesion';
 
 function leerSesion(request: FastifyRequest): IdentidadSesion | undefined {
   const token = request.cookies[COOKIE_SESION];
-  if (token && /^[A-Za-z0-9_-]{43}$/.test(token)) return { huellaSesion: huellaSesion(token) };
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
+  const cuenta = request.headers[CABECERA_CUENTA_ESPERADA];
+  return {
+    huellaSesion: huellaSesion(token),
+    ...(cuenta !== undefined && { cuentaEsperada: identificador(cuenta, 'La cuenta esperada') }),
+  };
 }
 
 export function identidadSesion(request: FastifyRequest): IdentidadSesion {

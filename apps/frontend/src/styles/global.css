@@ -138,6 +138,8 @@ button:disabled {
   background: #e8efe6;
 }
 
+.aviso-cuenta { margin-bottom: 1rem; }
+
 .flujo,
 .filtros,
 .lista {
