@@ -12,6 +12,12 @@ pnpm --filter @inventario/backend dev
 - `GET http://127.0.0.1:3000/health` confirma que el proceso responde.
 - `GET http://127.0.0.1:3000/ready` consulta PostgreSQL y devuelve HTTP 503 si no puede conectarse.
 
+## Consultas de PostgreSQL
+
+Las consultas se escriben en `queries/*.sql` y sqlc usa las migraciones de Goose de `migrations/` como fuente del esquema. Con sqlc v1.31.1 en `PATH`, ejecutar `pnpm db:generate` desde la raíz después de editar consultas o agregar una migración. El comando usa el complemento oficial de TypeScript fijado en `sqlc.yaml` y adapta su salida al modo estricto. Incluir los archivos de `src/db/consultas/` en el mismo commit que el SQL correspondiente.
+
+Las funciones generadas reciben el cliente de `pg`. Dentro de `enTransaccion`, se les pasa el mismo cliente reservado hasta confirmar o revertir la operación. Las cantidades y los saldos viajan como cadenas decimales, y PostgreSQL hace la aritmética con `numeric`.
+
 ## Sesión y personal
 
 Los cuerpos de solicitud se envían como JSON. Las cuentas se normalizan a minúsculas y son únicas, de modo que el servidor puede resolver el negocio desde el inicio de sesión. El nombre de cuenta admite de 3 a 64 letras sin acentos, números, puntos, guiones o guiones bajos. Debe comenzar con una letra o un número. La contraseña debe tener al menos 12 caracteres y ocupar hasta 256 bytes. Se deriva con scrypt y se guarda con una sal individual.
