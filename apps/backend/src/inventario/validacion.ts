@@ -14,7 +14,10 @@ type CodigoInventario =
   | 'jornada_cerrada'
   | 'apertura_existente'
   | 'apertura_no_confirmada'
-  | 'reintento_distinto';
+  | 'reintento_distinto'
+  | 'conteo_requerido'
+  | 'saldo_insuficiente'
+  | 'saldo_excedido';
 
 export class ErrorInventario extends Error {
   constructor(readonly codigo: CodigoInventario, mensaje: string) {
@@ -48,4 +51,14 @@ export function texto(valor: unknown, campo: string, maximo: number): string {
     invalidos(campo + ' debe contener entre 1 y ' + maximo + ' caracteres válidos.');
   }
   return limpio;
+}
+
+export function cantidadDecimal(valor: unknown): string {
+  if (typeof valor !== 'string' || valor !== valor.trim() || !/^\d{1,12}(?:\.\d{1,6})?$/.test(valor)) {
+    invalidos('Escribe una cantidad no negativa con hasta doce cifras enteras y seis decimales.');
+  }
+  const [entero = '0', fraccion = ''] = valor.split('.');
+  const base = entero.replace(/^0+(?=\d)/, '');
+  const decimales = fraccion.replace(/0+$/, '');
+  return decimales ? base + '.' + decimales : base;
 }

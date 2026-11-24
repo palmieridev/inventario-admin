@@ -7,6 +7,7 @@ import pg from 'pg';
 import { prepararClave } from '../src/acceso/credenciales.js';
 import { createApp } from '../src/app.js';
 import { crearServicioApertura } from '../src/inventario/apertura.js';
+import { crearServicioMovimientos } from '../src/inventario/movimientos.js';
 import { crearCatalogo } from '../src/inventario/catalogo.js';
 
 const url = process.env.INVENTARIO_TEST_DATABASE_URL;
@@ -20,6 +21,7 @@ const pool = new pg.Pool({ connectionString: conexion.toString() });
 const app = createApp(new pg.Pool({ connectionString: conexion.toString() }), { cookieSegura: true, logger: false });
 const catalogo = crearCatalogo(pool);
 const inventario = crearServicioApertura(pool);
+const movimientos = crearServicioMovimientos(pool);
 const migraciones = fileURLToPath(new URL('../migrations/', import.meta.url));
 
 before(async () => {
@@ -562,4 +564,168 @@ test('recupera la apertura original de un elemento inactivo sin permitir otra ca
   await assert.rejects(inventario.registrarApertura(puesto.staff, { ...datos, claveReintento: randomUUID() }),
     { codigo: 'elemento_inactivo' });
   assert.equal((await pool.query('SELECT id FROM operaciones_inventario WHERE negocio_id = $1', [puesto.id])).rowCount, 1);
+});
+
+// A08: movimientos y producción; cada escenario usa un negocio ficticio independiente.
+async function escenarioMovimientos() {
+  const puesto = await negocio('Puesto A08');
+  const jornadaId = await abrirJornada(puesto.id);
+  const unidad = await catalogo.crearUnidad(puesto.admin, { nombre: 'Unidad', simbolo: 'u', decimales: 6 });
+  async function elemento(nombre: string, categoria: 'insumo' | 'preparado' | 'bebida', cantidad: string) {
+    const e = await catalogo.crearElemento(puesto.admin, { nombre, categoria, unidadId: unidad.id });
+    await inventario.registrarApertura(puesto.staff, {
+      jornadaId, elementoId: e.id, unidadId: unidad.id, cantidad, claveReintento: randomUUID(),
+    });
+    return { elementoId: e.id, unidadId: unidad.id };
+  }
+  const insumo = await elemento('Masa', 'insumo', '1000');
+  const preparado = await elemento('Pieza preparada', 'preparado', '0');
+  const bebida = await elemento('Bebida', 'bebida', '10');
+  return { ...puesto, jornadaId, unidad, insumo, preparado, bebida,
+    saldo: async (id: string) => (await inventario.consultarExistencia(puesto.staff, id))?.cantidad };
+}
+
+test('A08: compra, consumo y merma conservan motivos y rechazan saldos insuficientes', async () => {
+  const p = await escenarioMovimientos();
+  const registrar = (tipo: string, cantidad: string, motivo?: string) => movimientos.registrar(p.staff, {
+    tipo, jornadaId: p.jornadaId, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad }],
+    ...(motivo && { motivo }),
+  });
+  const compra = await registrar('compra', '5');
+  assert.equal(compra.lineas[0]?.saldoResultante, '15');
+  await registrar('consumo', '2', 'Consumo del personal');
+  const merma = await registrar('merma', '1', 'dano_traslado');
+  assert.equal(merma.motivo, 'dano_traslado');
+  assert.equal(await p.saldo(p.bebida.elementoId), '12');
+  await assert.rejects(registrar('salida', '13', 'Venta'), { codigo: 'saldo_insuficiente' });
+  await assert.rejects(registrar('merma', '1', 'regalo'), { codigo: 'datos_invalidos' });
+  await registrar('salida', '2', 'Regalo');
+  assert.equal(await p.saldo(p.bebida.elementoId), '10');
+  for (const cantidad of ['0', '-1', '1e2', '1.0000001', 'NaN', 1]) {
+    await assert.rejects(movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId,
+      claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad }] }), { codigo: 'datos_invalidos' });
+  }
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM operaciones_inventario WHERE negocio_id = $1 AND tipo <> 'apertura'", [p.id])).rows[0].n, 4);
+});
+
+test('A08: tanda atómica, venta sin doble descuento e insumos opcionales bajo control', async () => {
+  const p = await escenarioMovimientos();
+  const tanda = { tipo: 'tanda', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    insumos: [{ ...p.insumo, cantidad: '500' }], productos: [{ ...p.preparado, cantidad: '10' }] };
+  const confirmada = await movimientos.registrar(p.staff, tanda);
+  await movimientos.registrar(p.staff, { tipo: 'salida', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    motivo: 'Venta', lineas: [{ ...p.preparado, cantidad: '3' }] });
+  assert.equal(await p.saldo(p.insumo.elementoId), '500');
+  assert.equal(await p.saldo(p.preparado.elementoId), '7');
+  assert.deepEqual(await movimientos.registrar(p.staff, tanda), confirmada);
+  await assert.rejects(movimientos.registrar(p.staff, { ...tanda, claveReintento: randomUUID(),
+    insumos: [{ ...p.insumo, cantidad: '501' }] }), { codigo: 'saldo_insuficiente' });
+  assert.equal(await p.saldo(p.preparado.elementoId), '7');
+  assert.equal(await p.saldo(p.insumo.elementoId), '500');
+  await assert.rejects(movimientos.registrar(p.staff, { ...tanda, claveReintento: randomUUID(),
+    productos: [{ ...p.bebida, cantidad: '2' }] }), { codigo: 'datos_invalidos' });
+  await movimientos.registrar(p.admin, { ...tanda, claveReintento: randomUUID(), insumos: [] });
+  assert.equal(await p.saldo(p.preparado.elementoId), '17');
+});
+
+test('A08: ajuste exclusivo de admin conserva originales, autor y conteo cero', async () => {
+  const p = await escenarioMovimientos();
+  const datos = { tipo: 'ajuste', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    motivo: 'Diferencia en conteo físico', lineas: [{ ...p.bebida, cantidad: '8' }] };
+  await assert.rejects(movimientos.registrar(p.staff, datos), { codigo: 'acceso_denegado' });
+  const ajuste = await movimientos.registrar(p.admin, datos);
+  assert.equal(ajuste.autorId, p.admin);
+  assert.deepEqual(ajuste.lineas[0], { ...p.bebida, saldoAnterior: '10', saldoResultante: '8', variacion: '-2' });
+  assert.equal((await pool.query('SELECT cantidad::text FROM aperturas_inventario WHERE elemento_id = $1', [p.bebida.elementoId])).rows[0].cantidad, '10');
+  await movimientos.registrar(p.admin, { ...datos, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad: '0' }] });
+  assert.equal(await p.saldo(p.bebida.elementoId), '0');
+  assert.deepEqual(await movimientos.consultar(p.staff, ajuste.operacionId), ajuste);
+});
+
+test('A08: serializa reintentos y salidas concurrentes sin perder precisión decimal', async () => {
+  const p = await escenarioMovimientos();
+  const compra = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '0.000001' }] };
+  const resultados = await Promise.all(Array.from({ length: 4 }, () => movimientos.registrar(p.staff, compra)));
+  for (const resultado of resultados) assert.deepEqual(resultado, resultados[0]);
+  assert.equal(await p.saldo(p.bebida.elementoId), '10.000001');
+  const salidas = await Promise.allSettled(Array.from({ length: 2 }, () => movimientos.registrar(p.staff, {
+    tipo: 'salida', jornadaId: p.jornadaId, claveReintento: randomUUID(), motivo: 'Venta',
+    lineas: [{ ...p.bebida, cantidad: '6' }],
+  })));
+  assert.equal(salidas.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(salidas.find((r) => r.status === 'rejected')?.reason.codigo, 'saldo_insuficiente');
+  assert.equal(await p.saldo(p.bebida.elementoId), '4.000001');
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [{ ...p.bebida, cantidad: '2' }] }), { codigo: 'reintento_distinto' });
+  await assert.rejects(movimientos.registrar(p.admin, compra), { codigo: 'reintento_distinto' });
+  await pool.query('UPDATE jornadas SET cerrada_en = now() WHERE id = $1', [p.jornadaId]);
+  assert.deepEqual(await movimientos.registrar(p.staff, compra), resultados[0]);
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, claveReintento: randomUUID() }), { codigo: 'jornada_cerrada' });
+});
+
+test('A08: valida unidad, duplicados, conteo previo, límite de saldo y pertenencia', async () => {
+  const p = await escenarioMovimientos();
+  const otro = await escenarioMovimientos();
+  const compra = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad: '1' }] };
+  await assert.rejects(movimientos.registrar(otro.staff, compra), { codigo: 'no_encontrado' });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [{ ...otro.bebida, cantidad: '1' }] }), { codigo: 'no_encontrado' });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [{ ...p.bebida, unidadId: otro.unidad.id, cantidad: '1' }] }), { codigo: 'datos_invalidos' });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [...compra.lineas, ...compra.lineas] }), { codigo: 'datos_invalidos' });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [{ ...p.bebida, cantidad: '999999999999' }] }), { codigo: 'saldo_excedido' });
+  const sinConteo = await catalogo.crearElemento(p.admin, { nombre: 'Sin conteo', categoria: 'bebida', unidadId: p.unidad.id });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra, lineas: [{ ...p.bebida, elementoId: sinConteo.id, cantidad: '1' }] }), { codigo: 'conteo_requerido' });
+  const confirmado = await movimientos.registrar(p.staff, compra);
+  await assert.rejects(movimientos.consultar(otro.admin, confirmado.operacionId), { codigo: 'no_encontrado' });
+  await pool.query('UPDATE usuarios SET activo = false WHERE id = $1', [p.staff]);
+  await assert.rejects(movimientos.registrar(p.staff, compra), { codigo: 'acceso_denegado' });
+});
+
+test('A08: rutas exigen sesión y protegen ajustes y consulta por negocio', async () => {
+  const p = await escenarioMovimientos();
+  await asignarCuenta(p.staff, 'a08.staff');
+  const sesion = await iniciarSesion('a08.staff');
+  const payload = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad: '2' }] };
+  const url = '/api/inventario/movimientos';
+  assert.equal((await app.inject({ method: 'POST', url, payload })).statusCode, 401);
+  const compra = await app.inject({ method: 'POST', url, payload, headers: { cookie: sesion.cookie } });
+  assert.equal(compra.statusCode, 200, compra.body);
+  assert.equal(compra.json().lineas[0].saldoResultante, '12');
+  const ruta = url + '/' + compra.json().operacionId;
+  assert.equal((await app.inject({ method: 'GET', url: ruta })).statusCode, 401);
+  assert.deepEqual((await app.inject({ method: 'GET', url: ruta, headers: { cookie: sesion.cookie } })).json(), compra.json());
+  assert.equal((await app.inject({ method: 'POST', url, payload: { ...payload, tipo: 'ajuste', motivo: 'Conteo' }, headers: { cookie: sesion.cookie } })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'POST', url, payload, headers: { cookie: sesion.cookie, 'x-inventario-cuenta': randomUUID() } })).statusCode, 409);
+  await app.inject({ method: 'DELETE', url: '/api/sesion', headers: { cookie: sesion.cookie } });
+  assert.equal((await app.inject({ method: 'POST', url, payload, headers: { cookie: sesion.cookie } })).statusCode, 401);
+});
+
+test('A08: revierte líneas previas si falla la última y conserva claves entre tipos', async () => {
+  const p = await escenarioMovimientos();
+  const orden = [p.insumo, p.preparado, p.bebida].sort((a, b) => a.elementoId.localeCompare(b.elementoId));
+  await movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: [{ ...p.preparado, cantidad: '1' }] });
+  const anterior = await Promise.all(orden.map((e) => p.saldo(e.elementoId)));
+  await assert.rejects(movimientos.registrar(p.staff, {
+    tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: orden.map((e, i) => ({ ...e, cantidad: i === 2 ? '999999999999.999999' : '1' })),
+  }), { codigo: 'saldo_excedido' });
+  assert.deepEqual(await Promise.all(orden.map((e) => p.saldo(e.elementoId))), anterior);
+  const { rows: [apertura] } = await pool.query('SELECT clave_reintento FROM operaciones_inventario WHERE negocio_id = $1 LIMIT 1', [p.id]);
+  await assert.rejects(movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId,
+    claveReintento: apertura.clave_reintento, lineas: [{ ...p.bebida, cantidad: '1' }] }), { codigo: 'reintento_distinto' });
+});
+
+test('A08: rechaza jornada futura, elemento inactivo y fracciones fuera de la unidad', async () => {
+  const p = await escenarioMovimientos();
+  const compra = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad: '1' }] };
+  await pool.query("UPDATE jornadas SET iniciada_en = now() + interval '1 day' WHERE id = $1", [p.jornadaId]);
+  await assert.rejects(movimientos.registrar(p.staff, compra), { codigo: 'jornada_no_iniciada' });
+  await pool.query('UPDATE jornadas SET iniciada_en = now() WHERE id = $1', [p.jornadaId]);
+  await catalogo.modificarElemento(p.admin, p.bebida.elementoId, { nombre: 'Bebida', categoria: 'bebida', unidadId: p.unidad.id, activo: false });
+  await assert.rejects(movimientos.registrar(p.staff, compra), { codigo: 'elemento_inactivo' });
+  const unidad = await catalogo.crearUnidad(p.admin, { nombre: 'Pieza', simbolo: 'pza', decimales: 0 });
+  const elemento = await catalogo.crearElemento(p.admin, { nombre: 'Pieza entera', categoria: 'preparado', unidadId: unidad.id });
+  await inventario.registrarApertura(p.staff, { elementoId: elemento.id, unidadId: unidad.id, jornadaId: p.jornadaId, cantidad: '0', claveReintento: randomUUID() });
+  await assert.rejects(movimientos.registrar(p.staff, { ...compra,
+    lineas: [{ elementoId: elemento.id, unidadId: unidad.id, cantidad: '0.1' }] }), { codigo: 'datos_invalidos' });
 });
