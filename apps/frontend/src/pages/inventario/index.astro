@@ -1,0 +1,97 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+import { categorias } from '../../lib/catalogo';
+---
+
+<InventarioLayout title="Inventario">
+  <section class="flujo" aria-labelledby="titulo-inventario">
+    <div class="barra-acciones">
+      <h1 id="titulo-inventario">Inventario</h1>
+      <nav id="gestionar-catalogo" class="acciones" aria-label="Administrar negocio" hidden>
+        <a class="boton secundario" href="/inventario/unidades/">Unidades</a>
+        <a class="boton secundario" href="/inventario/personal/">Personal autorizado</a>
+        <a class="boton" href="/inventario/catalogo/">Nuevo elemento</a>
+      </nav>
+    </div>
+    <div class="filtros">
+      <div class="campo">
+        <label for="buscar">Buscar por nombre o variante</label>
+        <input id="buscar" type="search" placeholder="Ej. tamal verde" />
+      </div>
+      <div class="campo">
+        <label for="categoria-filtro">Categoría</label>
+        <select id="categoria-filtro">
+          <option value="">Todas</option>
+          {Object.entries(categorias).map(([valor, etiqueta]) => <option value={valor}>{etiqueta}</option>)}
+        </select>
+      </div>
+    </div>
+    <p id="resumen-catalogo" class="texto-secundario" role="status"></p>
+    <ul id="lista-elementos" class="lista"></ul>
+    <template id="fila-elemento">
+      <li class="fila">
+        <a class="detalle-elemento">
+          <strong></strong>
+          <span class="texto-secundario"></span>
+        </a>
+        <a class="boton secundario editar-elemento" hidden>Editar</a>
+      </li>
+    </template>
+  </section>
+</InventarioLayout>
+
+<script>
+  import { cargarCatalogo, categorias, nombreElemento } from '../../lib/catalogo';
+  import { conSesion } from '../../lib/sesion';
+
+  function normalizar(texto: string): string {
+    return texto.toLocaleLowerCase('es-MX').normalize('NFD').replace(/\p{M}/gu, '');
+  }
+
+  void conSesion(async (sesion) => {
+    const administra = sesion.rol === 'admin';
+    document.querySelector<HTMLElement>('#gestionar-catalogo')!.hidden = !administra;
+    const { elementos, unidades } = await cargarCatalogo();
+    const buscar = document.querySelector<HTMLInputElement>('#buscar')!;
+    const categoria = document.querySelector<HTMLSelectElement>('#categoria-filtro')!;
+    const lista = document.querySelector<HTMLUListElement>('#lista-elementos')!;
+    const fila = document.querySelector<HTMLTemplateElement>('#fila-elemento')!;
+    const resumen = document.querySelector<HTMLElement>('#resumen-catalogo')!;
+
+    function filtrar() {
+      const palabras = normalizar(buscar.value.trim()).split(/\s+/);
+      const visibles = elementos.filter((elemento) => {
+        const nombre = normalizar(nombreElemento(elemento));
+        return (!categoria.value || categoria.value === elemento.categoria) &&
+          palabras.every((palabra) => nombre.includes(palabra));
+      });
+
+      lista.replaceChildren(...visibles.map((elemento) => {
+        const renglon = fila.content.cloneNode(true) as DocumentFragment;
+        const enlace = renglon.querySelector<HTMLAnchorElement>('.detalle-elemento')!;
+        if (administra) {
+          const editar = renglon.querySelector<HTMLAnchorElement>('.editar-elemento')!;
+          editar.href = '/inventario/catalogo/?' + new URLSearchParams({ editar: elemento.id });
+          editar.setAttribute('aria-label', 'Editar ' + nombreElemento(elemento));
+          editar.hidden = false;
+        }
+        const unidad = unidades.get(elemento.unidadId);
+        enlace.href = '/inventario/conteo/?' + new URLSearchParams({ elemento: elemento.id });
+        renglon.querySelector('strong')!.textContent = nombreElemento(elemento);
+        renglon.querySelector('span')!.textContent = [
+          categorias[elemento.categoria], unidad?.nombre, elemento.activo ? '' : 'Inactivo',
+        ].filter(Boolean).join(' · ');
+        return renglon;
+      }));
+
+      resumen.textContent = visibles.length === 1 ? '1 elemento' : visibles.length + ' elementos';
+      if (!visibles.length) {
+        resumen.textContent = elementos.length ? 'No se encontraron elementos con esos filtros.' : 'El catálogo está vacío.';
+      }
+    }
+
+    buscar.addEventListener('input', filtrar);
+    categoria.addEventListener('change', filtrar);
+    filtrar();
+  });
+</script>

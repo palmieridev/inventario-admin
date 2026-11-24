@@ -6,7 +6,7 @@ El proyecto busca apoyar el registro interno de existencias durante la preparaci
 
 ## Estado del proyecto
 
-El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. Las pantallas correspondientes se desarrollarán en A07.
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. A07 incorpora las pantallas móviles de acceso, inventario, conteo inicial y administración del catálogo y del personal.
 
 ## Estructura
 
@@ -75,6 +75,13 @@ unset INVENTARIO_DEV_PASSWORD
 | Bebidas de demostración | `demo.admin.bebidas` | `demo.staff.bebidas` |
 
 Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga se conservan las cuentas, las contraseñas y el inventario existentes. Con `pnpm dev`, el servidor de Astro reenvía `/api` al backend local para que el frontend pueda utilizar la sesión desde el mismo origen. Las rutas y permisos se documentan en [apps/backend/README.md](apps/backend/README.md).
+
+### Recorrido de A07
+
+1. Abre el frontend e inicia sesión con una de las cuentas ficticias.
+2. Busca un elemento por nombre o variante, o filtra por categoría. Al seleccionarlo se muestran su unidad de control y su existencia si ya tiene un conteo.
+3. Con una jornada abierta, registra el conteo inicial de un elemento sin existencia. Un conteo de cero queda confirmado con su unidad. Si la confirmación se interrumpe, recarga la pantalla de conteo en la misma pestaña. Puedes recuperar el resultado aunque el elemento se haya desactivado.
+4. Como propietario o encargado, usa **Nuevo elemento**, **Editar** o **Unidades** para administrar el catálogo. **Personal autorizado** permite dar de alta, habilitar y revocar cuentas. El personal que atiende clientes puede consultar y contar dentro de su negocio.
 
 ### Comandos del monorepositorio
 

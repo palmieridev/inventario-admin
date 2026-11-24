@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
 import { ErrorInventario, objeto } from '../inventario/validacion.js';
 import { coincideClave, contrasenaValida, nombreCuenta } from './credenciales.js';
-import { autorizar, datosSesion, huellaSesion, type IdentidadSesion, type UsuarioInventario } from './identidad.js';
+import { autorizar, comprobarCuentaEsperada, datosSesion, huellaSesion, type IdentidadSesion, type UsuarioInventario } from './identidad.js';
 
 export const DURACION_SESION_SEGUNDOS = 12 * 60 * 60;
 
@@ -50,7 +50,17 @@ export function crearServicioSesion(pool: Pool) {
     },
 
     async cerrar(identidad: IdentidadSesion): Promise<void> {
-      await pool.query('DELETE FROM sesiones WHERE huella = $1', [identidad.huellaSesion]);
+      await enTransaccion(pool, async (cliente) => {
+        if (identidad.cuentaEsperada) {
+          const { rows: [sesion] } = await cliente.query<{ usuario_id: string }>(
+            'SELECT usuario_id FROM sesiones WHERE huella = $1 FOR UPDATE',
+            [identidad.huellaSesion],
+          );
+          if (!sesion) return;
+          comprobarCuentaEsperada(identidad, sesion.usuario_id);
+        }
+        await cliente.query('DELETE FROM sesiones WHERE huella = $1', [identidad.huellaSesion]);
+      });
     },
   };
 }

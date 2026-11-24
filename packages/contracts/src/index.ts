@@ -7,6 +7,8 @@ export interface ReadinessResponse {
   database: 'connected' | 'unavailable';
 }
 
+export const CABECERA_CUENTA_ESPERADA = 'x-inventario-cuenta';
+
 export type RolUsuario = 'admin' | 'staff';
 
 export interface InicioSesion {
@@ -65,15 +67,21 @@ export interface JornadaAbierta {
   iniciadaEn: string;
 }
 
+export interface DefinicionApertura extends Pick<Elemento, 'nombre' | 'variante' | 'categoria'> {
+  unidad: DatosUnidad;
+}
+
 export interface RegistroApertura {
   elementoId: string;
   unidadId: string;
   jornadaId: string;
   cantidad: string;
   claveReintento: string;
+  definicion?: DefinicionApertura;
+  soloConfirmada?: boolean;
 }
 
-export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento'> {
+export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento' | 'definicion' | 'soloConfirmada'> {
   operacionId: string;
   autorId: string;
   registradaEn: string;

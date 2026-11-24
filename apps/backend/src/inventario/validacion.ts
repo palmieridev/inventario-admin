@@ -3,14 +3,17 @@ type CodigoInventario =
   | 'credenciales_invalidas'
   | 'cuenta_ocupada'
   | 'sesion_requerida'
+  | 'sesion_cambiada'
   | 'acceso_denegado'
   | 'no_encontrado'
   | 'catalogo_duplicado'
+  | 'catalogo_cambiado'
   | 'unidad_con_historial'
   | 'elemento_inactivo'
   | 'jornada_no_iniciada'
   | 'jornada_cerrada'
   | 'apertura_existente'
+  | 'apertura_no_confirmada'
   | 'reintento_distinto';
 
 export class ErrorInventario extends Error {

@@ -12,6 +12,7 @@ export interface UsuarioInventario {
 
 export interface IdentidadSesion {
   huellaSesion: string;
+  cuentaEsperada?: string;
 }
 
 // Las llamadas internas de A05 pueden usar un identificador de confianza.
@@ -23,6 +24,12 @@ export function huellaSesion(token: string): string {
 
 export function sesionRequerida(): never {
   throw new ErrorInventario('sesion_requerida', 'Inicia sesión para acceder al inventario.');
+}
+
+export function comprobarCuentaEsperada(identidad: IdentidadSesion, cuentaId: string): void {
+  if (identidad.cuentaEsperada && identidad.cuentaEsperada !== cuentaId) {
+    throw new ErrorInventario('sesion_cambiada', 'La cuenta cambió. Vuelve a abrir la pantalla para continuar.');
+  }
 }
 
 export async function autorizar(
@@ -38,7 +45,7 @@ export async function autorizar(
     [typeof identidad === 'string' ? identificador(identidad, 'El usuario') : identidad.huellaSesion],
   );
 
-  if (sesion !== undefined) {
+  if (typeof identidad !== 'string') {
     if (!usuario) sesionRequerida();
     // La cuenta se bloquea antes de la sesión, en el mismo orden que la revocación.
     const vigente = await cliente.query(
@@ -46,6 +53,7 @@ export async function autorizar(
       [sesion, usuario.id],
     );
     if (!vigente.rowCount) sesionRequerida();
+    comprobarCuentaEsperada(identidad, usuario.id);
   }
 
   if (!usuario || (rol && usuario.rol !== rol)) {

@@ -1,0 +1,65 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+---
+
+<InventarioLayout title="Personal autorizado">
+  <section class="flujo">
+    <a class="volver" href="/inventario/">Volver al inventario</a>
+    <div class="barra-acciones">
+      <h1>Personal autorizado</h1>
+      <button id="alta-personal" type="button">Dar de alta</button>
+    </div>
+
+    <form id="formulario-personal" class="panel formulario" method="post" hidden aria-labelledby="titulo-personal">
+      <h2 id="titulo-personal">Dar de alta al personal</h2>
+      <div id="campo-nombre-personal" class="campo">
+        <label for="nombre-personal">Nombre</label>
+        <input id="nombre-personal" name="nombre" required aria-describedby="error-nombre-personal" />
+        <p id="error-nombre-personal" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="cuenta-personal">Cuenta</label>
+        <input id="cuenta-personal" name="cuenta" autocomplete="off" autocapitalize="none"
+          spellcheck="false" required maxlength="64" aria-describedby="error-cuenta-personal" />
+        <p id="error-cuenta-personal" class="error" role="alert" hidden></p>
+      </div>
+      <div class="campo">
+        <label for="clave-personal">Contraseña</label>
+        <input id="clave-personal" name="contrasena" type="password" autocomplete="new-password" required
+          aria-describedby="ayuda-clave-personal error-clave-personal" />
+        <p id="ayuda-clave-personal" class="texto-secundario">Usa al menos 12 caracteres.</p>
+        <p id="error-clave-personal" class="error" role="alert" hidden></p>
+      </div>
+      <p id="error-alta-personal" class="error" role="alert" hidden></p>
+      <div class="acciones">
+        <button type="submit">Habilitar acceso</button>
+        <button id="cancelar-alta-personal" type="button" class="secundario">Cancelar</button>
+      </div>
+    </form>
+
+    <p id="confirmacion-personal" class="aviso" role="status" tabindex="-1" hidden></p>
+    <p id="sin-personal" class="texto-secundario" hidden>Aún no hay personal registrado.</p>
+    <ul id="lista-personal" class="lista"></ul>
+    <template id="fila-personal">
+      <li class="fila panel flujo">
+        <div>
+          <strong></strong>
+          <div class="texto-secundario"></div>
+        </div>
+        <p class="error" role="alert" hidden></p>
+        <button type="button" class="secundario"></button>
+      </li>
+    </template>
+  </section>
+</InventarioLayout>
+
+<script>
+  import { iniciarPersonal } from '../../lib/personal';
+  import { conSesion } from '../../lib/sesion';
+
+  void conSesion(iniciarPersonal, true);
+</script>
+
+<style>
+  .fila button { justify-self: start; }
+</style>

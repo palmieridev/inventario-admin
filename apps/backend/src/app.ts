@@ -19,14 +19,17 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   credenciales_invalidas: 401,
   cuenta_ocupada: 409,
   sesion_requerida: 401,
+  sesion_cambiada: 409,
   acceso_denegado: 403,
   no_encontrado: 404,
   catalogo_duplicado: 409,
+  catalogo_cambiado: 409,
   unidad_con_historial: 409,
   elemento_inactivo: 409,
   jornada_no_iniciada: 409,
   jornada_cerrada: 409,
   apertura_existente: 409,
+  apertura_no_confirmada: 409,
   reintento_distinto: 409,
 };
 
