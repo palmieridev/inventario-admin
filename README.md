@@ -6,7 +6,7 @@ El proyecto busca apoyar el registro de existencias durante la preparación y la
 
 ## Estado del proyecto
 
-El repositorio contiene la base ejecutable del monorepositorio: frontend en Astro, backend en TypeScript y Fastify, contratos compartidos y PostgreSQL para desarrollo local. Las funciones de inventario todavía no están implementadas; el backend incluye únicamente comprobaciones de salud y conexión a la base de datos.
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el esquema y los servicios internos de catálogo y conteo de apertura. A06 los conectará con el acceso de cada cuenta.
 
 ## Estructura
 
@@ -14,7 +14,7 @@ El repositorio contiene la base ejecutable del monorepositorio: frontend en Astr
 inventario-admin/
 ├── apps/
 │   ├── frontend/             # Astro: páginas, layouts, componentes y estilos
-│   └── backend/              # API Fastify y acceso a PostgreSQL
+│   └── backend/              # API Fastify, acceso a PostgreSQL y migraciones
 ├── packages/
 │   └── contracts/            # Tipos compartidos de solicitudes y respuestas
 ├── infra/
@@ -29,7 +29,7 @@ inventario-admin/
 
 ## Desarrollo local
 
-Se requieren Node.js 24 LTS o superior, pnpm 11.1.1 y Docker con Compose. La configuración también puede ejecutarse con un proveedor compatible de Compose para Podman.
+Se requieren Node.js 24 LTS o superior, pnpm 11.1.1, Docker con Compose y Goose v3.29.0 disponible en `PATH`. La configuración también puede ejecutarse con un proveedor compatible de Compose para Podman. Si se cuenta con Go, se puede instalar Goose con `go install github.com/pressly/goose/v3/cmd/goose@v3.29.0`.
 
 Desde la raíz del repositorio:
 
@@ -38,6 +38,7 @@ cp .env.example .env
 pnpm install
 pnpm db:up
 pnpm db:check
+pnpm db:migrate
 pnpm dev
 ```
 
@@ -65,13 +66,18 @@ curl http://127.0.0.1:3000/ready
 | `pnpm dev` | Compila los contratos e inicia sus cambios en modo observación junto con frontend y backend. |
 | `pnpm build` | Compila los paquetes respetando sus dependencias internas. |
 | `pnpm typecheck` | Compila los contratos y revisa TypeScript y las plantillas Astro. |
+| `pnpm test:inventario` | Comprueba el catálogo y el conteo inicial en PostgreSQL. Requiere `INVENTARIO_TEST_DATABASE_URL` y Goose. |
 | `pnpm db:up` | Inicia PostgreSQL en segundo plano. |
 | `pnpm db:check` | Comprueba si PostgreSQL acepta conexiones. |
+| `pnpm db:migrate` | Aplica las migraciones SQL pendientes de `apps/backend/migrations/`. |
+| `pnpm db:migrate:status` | Muestra qué migraciones ya se aplicaron. |
 | `pnpm db:logs` | Muestra los registros de PostgreSQL. |
 | `pnpm db:psql` | Abre la consola SQL dentro del contenedor. |
 | `pnpm db:down` | Detiene PostgreSQL y conserva el volumen de datos. |
 
 `Ctrl+C` detiene los procesos de `pnpm dev`; la base se detiene por separado con `pnpm db:down`. Los scripts no eliminan el volumen. Las variables de inicialización de PostgreSQL se aplican solo al crear una base nueva; cambiar `.env` no modifica las credenciales de un volumen existente. Se incluyen más detalles en [infra/docker/README.md](infra/docker/README.md).
+
+Los comandos de migración usan las variables `POSTGRES_*` de `.env` para desarrollo local. Para otra base, se puede proporcionar a Goose `GOOSE_DBSTRING` con la configuración de conexión correspondiente. La reversión del esquema inicial elimina sus tablas y se reserva para bases desechables durante la verificación. Los datos de prueba se cargan por separado.
 
 ## Alcance previsto
 
@@ -114,7 +120,7 @@ El monorepositorio utiliza espacios de trabajo de pnpm. Los paquetes internos se
 | Contratos compartidos | TypeScript | Tipos de solicitudes y respuestas entre frontend y backend. |
 | Persistencia | PostgreSQL | Existencias, movimientos, autoría, autorizaciones y transacciones. |
 
-Los contratos generan JavaScript ESM y declaraciones de tipos; frontend y backend los declaran como dependencia. Todavía no se incluyen tablas, migraciones ni datos iniciales. La operación sin conexión y el uso simultáneo de varios dispositivos permanecen pendientes de validación.
+Los contratos generan JavaScript ESM y declaraciones de tipos. Frontend y backend los declaran como dependencia. Las migraciones versionan el esquema sin cargar datos de negocios. La operación sin conexión y el uso simultáneo de varios dispositivos permanecen pendientes de validación.
 
 ## Límites
 
