@@ -843,3 +843,30 @@ test('A09: una clave de movimiento también se rechaza al consultar una apertura
   await assert.rejects(inventario.registrarApertura(otro.staff, { ...apertura, soloConfirmada: true }),
     { codigo: 'apertura_no_confirmada' });
 });
+
+test('A09: revierte la tanda si PostgreSQL rechaza su segunda línea', async () => {
+  const p = await escenarioMovimientos();
+  const tanda = { tipo: 'tanda', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    insumos: [{ ...p.insumo, cantidad: '500' }], productos: [{ ...p.preparado, cantidad: '10' }] };
+  const ultimaEsProducto = p.insumo.elementoId.localeCompare(p.preparado.elementoId) < 0;
+  const saldoUltimaLinea = ultimaEsProducto ? '10' : '500';
+
+  // Fuerza un error de escritura después de guardar la primera línea y su saldo.
+  await pool.query('ALTER TABLE lineas_movimiento ADD CONSTRAINT fallo_escritura_a09 ' +
+    `CHECK (saldo_resultante <> ${saldoUltimaLinea}) NOT VALID`);
+  try {
+    await assert.rejects(movimientos.registrar(p.staff, tanda), { code: '23514', constraint: 'fallo_escritura_a09' });
+    assert.equal(await p.saldo(p.insumo.elementoId), '1000');
+    assert.equal(await p.saldo(p.preparado.elementoId), '0');
+    await assert.rejects(movimientos.registrar(p.staff, { ...tanda, soloConfirmada: true }),
+      { codigo: 'movimiento_no_confirmado' });
+  } finally {
+    await pool.query('ALTER TABLE lineas_movimiento DROP CONSTRAINT fallo_escritura_a09');
+  }
+
+  const confirmada = await movimientos.registrar(p.staff, tanda);
+  assert.equal(confirmada.lineas.length, 2);
+  assert.equal(await p.saldo(p.insumo.elementoId), '500');
+  assert.equal(await p.saldo(p.preparado.elementoId), '10');
+  assert.deepEqual(await movimientos.registrar(p.staff, tanda), confirmada);
+});

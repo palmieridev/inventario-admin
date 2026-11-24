@@ -57,7 +57,7 @@ Las categorías son `insumo`, `preparado`, `bebida` y `empaque`. La cantidad de 
 
 La apertura se guarda junto con el movimiento, la fecha, el autor y el saldo. Un conteo nuevo exige una jornada iniciada y abierta. El saldo se conserva entre jornadas. Cambiar la unidad de un elemento con apertura o editar la definición de una unidad ya utilizada requiere un procedimiento posterior que preserve el historial.
 
-## Movimientos y producción (A08)
+## Movimientos, producción y persistencia (A08–A09)
 
 Aplicar `pnpm db:migrate` antes de usar estas rutas. La migración 00003 agrega las operaciones y sus líneas sin alterar los conteos existentes. Los formularios corresponden a A10; A08 incorpora la API y las reglas de persistencia.
 
@@ -90,7 +90,7 @@ const compra: RegistroMovimiento = {
 
 La respuesta `MovimientoConfirmado` incluye `operacionId`, `autorId`, `jornadaId`, `tipo`, `registradaEn`, `motivo`, `observacion` y `lineas`. Cada línea devuelve `elementoId`, `unidadId`, `saldoAnterior`, `saldoResultante` y `variacion` como cantidades decimales en texto. En un ajuste de diez a ocho, la variación es `"-2"`. Una salida de piezas preparadas modifica solo sus existencias: no vuelve a consumir los ingredientes de la tanda.
 
-La clave de reintento pertenece al negocio y se comparte con las aperturas. El consumidor debe conservarla junto con la captura hasta resolver una respuesta incierta y reenviar los mismos datos; no debe generar otra clave tras un error de red. Se recupera la respuesta original incluso tras cerrar la jornada o desactivar el elemento, siempre que la cuenta conserve su acceso y permiso. Cambiar la autoría, el tipo o el contenido con la misma clave devuelve `reintento_distinto` (409). El orden de las líneas y los ceros decimales finales no cambian la identidad del intento.
+La clave de reintento pertenece al negocio y se comparte con las aperturas. Si se pierde la respuesta, conservar la captura y su clave. Para verificar el resultado, enviar la misma captura a `POST /api/inventario/movimientos` con `soloConfirmada: true`. La API devuelve la confirmación con HTTP 200 o `movimiento_no_confirmado` (409) si aún no encuentra un registro para la clave. La consulta no realiza ningún cambio. Si hace falta volver a intentar la captura, reenviar los mismos datos con la misma clave y omitir `soloConfirmada`. Se recupera la respuesta original incluso tras cerrar la jornada o desactivar el elemento, siempre que la cuenta conserve su acceso y permiso. Cambiar la autoría, el tipo o el contenido con la misma clave devuelve `reintento_distinto` (409). El orden de las líneas y los ceros decimales finales no cambian la identidad del intento.
 
 Una cantidad superior al saldo devuelve `saldo_insuficiente` (409); la ausencia de conteo inicial, `conteo_requerido` (409); exceder doce cifras enteras de saldo, `saldo_excedido` (409). Ninguno guarda líneas o saldos parciales. Los bloqueos de PostgreSQL serializan las operaciones sobre los mismos elementos y la restricción única de clave evita duplicar movimientos. Esto no implementa operación sin conexión ni resuelve la interacción entre varios dispositivos.
 
@@ -99,3 +99,5 @@ Una cantidad superior al saldo devuelve `saldo_insuficiente` (409); la ausencia 
 Para probar mediante HTTP con cuentas ficticias, cargar los datos de demostración siguiendo el [README del repositorio](../../README.md). Las pantallas de acceso y catálogo corresponden a A07.
 
 Para ejecutar la suite de integración, configurar `INVENTARIO_TEST_DATABASE_URL` con una base PostgreSQL de pruebas y ejecutar `pnpm test:inventario` desde la raíz. La cuenta de prueba debe poder crear esquemas. Goose aplica las migraciones en un esquema único que se elimina al terminar. La suite comprueba sesiones, revocación, aislamiento entre dos negocios, permisos de catálogo, conteos, reintentos y conservación de la autoría. Para A08 comprueba compras, causas de merma, consumo, producción sin doble descuento, ajuste exclusivo de admin, precisión decimal, concurrencia, recuperación tras cierre y reversión completa cuando falla una línea.
+
+Para A09, la suite comprueba la consulta de confirmaciones, los conflictos de clave entre tipos de operación y la reversión de una tanda cuando PostgreSQL rechaza la segunda línea. Para verificar un reinicio en una instancia desechable, guardar la respuesta de una tanda y de una salida posterior. Reiniciar PostgreSQL y volver a consultar ambas por su identificador. Comprobar que `soloConfirmada: true` y el reenvío con la misma clave devuelven la tanda original, y que las existencias reflejan también la salida. Para verificar una copia, restaurar el respaldo en otra base de pruebas y repetir estas consultas.
