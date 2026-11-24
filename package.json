@@ -13,6 +13,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter @inventario/contracts build && pnpm -r typecheck",
     "test:inventario": "pnpm --filter @inventario/backend test:inventario",
+    "db:generate": "node apps/backend/scripts/generate-sql.mjs",
     "db:migrate": "node --env-file-if-exists=.env apps/backend/scripts/migrate.mjs up",
     "db:migrate:status": "node --env-file-if-exists=.env apps/backend/scripts/migrate.mjs status",
     "db:seed:dev": "pnpm --filter @inventario/backend db:seed:dev",
