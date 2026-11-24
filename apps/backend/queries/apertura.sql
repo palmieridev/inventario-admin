@@ -1,8 +1,8 @@
 -- name: BuscarAperturaPorClave :one
 SELECT o.id AS operacion_id, o.autor_id, o.jornada_id, o.registrada_en, a.elemento_id, a.unidad_id,
-       a.cantidad::text AS cantidad
+       a.cantidad
 FROM operaciones_inventario AS o
-JOIN aperturas_inventario AS a ON a.negocio_id = o.negocio_id AND a.operacion_id = o.id
+LEFT JOIN aperturas_inventario AS a ON a.negocio_id = o.negocio_id AND a.operacion_id = o.id
 WHERE o.negocio_id = sqlc.arg(negocio_id) AND o.clave_reintento = sqlc.arg(clave_reintento);
 
 -- name: ListarJornadasAbiertas :many

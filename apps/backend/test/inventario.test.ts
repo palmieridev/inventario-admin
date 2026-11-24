@@ -827,3 +827,19 @@ test('A09: consulta una confirmación por clave sin crear movimientos', async ()
   await assert.rejects(movimientos.registrar(otro.staff, { ...compra, soloConfirmada: true }),
     { codigo: 'movimiento_no_confirmado' });
 });
+
+test('A09: una clave de movimiento también se rechaza al consultar una apertura', async () => {
+  const p = await escenarioMovimientos();
+  const otro = await escenarioMovimientos();
+  const claveReintento = randomUUID();
+  await movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId, claveReintento,
+    lineas: [{ ...p.bebida, cantidad: '2' }] });
+
+  const apertura = { ...p.bebida, jornadaId: p.jornadaId, cantidad: '10', claveReintento };
+  await assert.rejects(inventario.registrarApertura(p.staff, { ...apertura, soloConfirmada: true }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(inventario.registrarApertura(p.staff, { ...apertura, jornadaId: randomUUID() }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(inventario.registrarApertura(otro.staff, { ...apertura, soloConfirmada: true }),
+    { codigo: 'apertura_no_confirmada' });
+});
