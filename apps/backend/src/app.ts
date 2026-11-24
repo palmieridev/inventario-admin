@@ -5,6 +5,7 @@ import type { HealthResponse, ReadinessResponse } from '@inventario/contracts';
 import type { Pool } from 'pg';
 import { registrarRutasPersonal } from './acceso/rutas-personal.js';
 import { registrarRutasSesion } from './acceso/rutas-sesion.js';
+import { registrarRutasInventario } from './inventario/rutas.js';
 import { ErrorInventario } from './inventario/validacion.js';
 
 interface OpcionesApp {
@@ -80,6 +81,7 @@ export function createApp(pool: Pool, { cookieSegura, logger = true }: OpcionesA
     await api.register(rateLimit, { global: false });
     registrarRutasSesion(api, pool, cookieSegura);
     registrarRutasPersonal(api, pool);
+    registrarRutasInventario(api, pool);
   }, { prefix: '/api' });
 
   return app;

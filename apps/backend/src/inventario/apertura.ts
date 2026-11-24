@@ -1,25 +1,16 @@
+import type { AperturaConfirmada, Existencia as ExistenciaRespuesta, JornadaAbierta, RegistroApertura } from '@inventario/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
-import { autorizar } from '../acceso/identidad.js';
+import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
 
-interface DatosApertura {
-  elementoId: string;
-  unidadId: string;
-  jornadaId: string;
-  cantidad: string;
-}
+type DatosApertura = Omit<RegistroApertura, 'claveReintento'>;
 
-interface Apertura extends DatosApertura {
-  operacionId: string;
-  autorId: string;
+interface Apertura extends Omit<AperturaConfirmada, 'registradaEn'> {
   registradaEn: Date;
 }
 
-interface Existencia {
-  elementoId: string;
-  unidadId: string;
-  cantidad: string;
+interface Existencia extends Omit<ExistenciaRespuesta, 'actualizadaEn'> {
   actualizadaEn: Date;
 }
 
@@ -55,9 +46,22 @@ function comprobarReintento(apertura: Apertura | undefined, autorId: string, dat
 
 export function crearServicioApertura(pool: Pool) {
   return {
-    registrarApertura(usuarioId: string, entrada: unknown): Promise<Apertura> {
+    listarJornadasAbiertas(identidad: IdentidadInventario): Promise<JornadaAbierta[]> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id: negocioId, id: autorId } = await autorizar(cliente, usuarioId);
+        const { negocio_id } = await autorizar(cliente, identidad);
+        const { rows } = await cliente.query<{ id: string; iniciadaEn: Date }>(
+          'SELECT id, iniciada_en AS "iniciadaEn" FROM jornadas ' +
+          'WHERE negocio_id = $1 AND iniciada_en <= CURRENT_TIMESTAMP AND cerrada_en IS NULL ' +
+          'ORDER BY iniciada_en DESC, id',
+          [negocio_id],
+        );
+        return rows.map(({ id, iniciadaEn }) => ({ id, iniciadaEn: iniciadaEn.toISOString() }));
+      });
+    },
+
+    registrarApertura(identidad: IdentidadInventario, entrada: unknown): Promise<Apertura> {
+      return enTransaccion(pool, async (cliente) => {
+        const { negocio_id: negocioId, id: autorId } = await autorizar(cliente, identidad);
         const valores = objeto(entrada);
         const clave = identificador(valores.claveReintento, 'La clave de reintento');
         const datos: DatosApertura = {
@@ -124,9 +128,9 @@ export function crearServicioApertura(pool: Pool) {
       });
     },
 
-    consultarExistencia(usuarioId: string, elementoId: string): Promise<Existencia | null> {
+    consultarExistencia(identidad: IdentidadInventario, elementoId: string): Promise<Existencia | null> {
       return enTransaccion(pool, async (cliente) => {
-        const usuario = await autorizar(cliente, usuarioId);
+        const usuario = await autorizar(cliente, identidad);
         const { rows: [existencia] } = await cliente.query<
           Omit<Existencia, 'cantidad' | 'actualizadaEn'> & { cantidad: string | null; actualizadaEn: Date | null }
         >(
