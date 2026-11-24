@@ -1,0 +1,44 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+---
+
+<InventarioLayout title="Conteo inicial">
+  <section class="flujo" aria-labelledby="titulo-conteo">
+    <a class="volver" href="/inventario/">Volver al inventario</a>
+    <h1 id="titulo-conteo">Conteo inicial</h1>
+    <p id="detalle-no-disponible" class="aviso" hidden>El elemento seleccionado no está disponible en tu catálogo.</p>
+
+    <section id="detalle-conteo" class="panel flujo" hidden aria-labelledby="elemento-conteo">
+      <div>
+        <h2 id="elemento-conteo"></h2>
+        <p id="unidad-conteo" class="texto-secundario"></p>
+      </div>
+      <p id="estado-conteo" class="aviso" role="status" hidden></p>
+      <form id="formulario-conteo" class="formulario" method="post" hidden>
+        <div id="selector-jornada" class="campo" hidden>
+          <label for="jornada">Jornada</label>
+          <select id="jornada" name="jornada" required aria-describedby="error-jornada"></select>
+          <p id="error-jornada" class="error" role="alert" hidden></p>
+        </div>
+        <p id="jornada-conteo" class="texto-secundario" hidden></p>
+        <div class="campo">
+          <label for="cantidad">Cantidad contada <span id="simbolo-cantidad"></span></label>
+          <input id="cantidad" name="cantidad" maxlength="19" required
+            aria-describedby="ayuda-cantidad error-cantidad" />
+          <p id="ayuda-cantidad" class="texto-secundario"></p>
+          <p id="error-cantidad" class="error" role="alert" hidden></p>
+        </div>
+        <p id="error-conteo" class="error" role="alert" hidden></p>
+        <button type="submit">Confirmar conteo inicial</button>
+      </form>
+      <div id="confirmacion-conteo" class="aviso" role="status" tabindex="-1" hidden></div>
+    </section>
+  </section>
+</InventarioLayout>
+
+<script>
+  import { iniciarConteo } from '../../lib/conteo';
+  import { conSesion } from '../../lib/sesion';
+
+  void conSesion(iniciarConteo);
+</script>
