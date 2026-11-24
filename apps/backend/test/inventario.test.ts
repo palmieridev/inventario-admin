@@ -792,3 +792,38 @@ test('A08: rechaza jornada futura, elemento inactivo y fracciones fuera de la un
   await assert.rejects(movimientos.registrar(p.staff, { ...compra,
     lineas: [{ elementoId: elemento.id, unidadId: unidad.id, cantidad: '0.1' }] }), { codigo: 'datos_invalidos' });
 });
+
+test('A09: consulta una confirmación por clave sin crear movimientos', async () => {
+  const p = await escenarioMovimientos();
+  const otro = await escenarioMovimientos();
+  await asignarCuenta(p.staff, 'a09.staff');
+  const { cookie } = await iniciarSesion('a09.staff');
+  const compra = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '2' }] };
+  const enviar = (payload: object) => app.inject({ method: 'POST', url: '/api/inventario/movimientos',
+    payload, headers: { cookie } });
+
+  const invalida = await enviar({ ...compra, soloConfirmada: 'true' });
+  assert.equal(invalida.statusCode, 400, invalida.body);
+  const pendiente = await enviar({ ...compra, soloConfirmada: true });
+  assert.equal(pendiente.statusCode, 409, pendiente.body);
+  assert.equal(pendiente.json().codigo, 'movimiento_no_confirmado');
+  assert.equal(await p.saldo(p.bebida.elementoId), '10');
+
+  const confirmada = await enviar(compra);
+  assert.equal(confirmada.statusCode, 200, confirmada.body);
+  await pool.query('UPDATE jornadas SET cerrada_en = now() WHERE id = $1', [p.jornadaId]);
+  const recuperada = await enviar({ ...compra, soloConfirmada: true,
+    lineas: [{ ...p.bebida, cantidad: '2.00' }] });
+  assert.equal(recuperada.statusCode, 200, recuperada.body);
+  assert.deepEqual(recuperada.json(), confirmada.json());
+  assert.equal(await p.saldo(p.bebida.elementoId), '12');
+
+  const cambiada = await enviar({ ...compra, soloConfirmada: true, lineas: [{ ...p.bebida, cantidad: '3' }] });
+  assert.equal(cambiada.statusCode, 409, cambiada.body);
+  assert.equal(cambiada.json().codigo, 'reintento_distinto');
+  await assert.rejects(movimientos.registrar(p.admin, { ...compra, soloConfirmada: true }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(movimientos.registrar(otro.staff, { ...compra, soloConfirmada: true }),
+    { codigo: 'movimiento_no_confirmado' });
+});

@@ -14,6 +14,7 @@ type CodigoInventario =
   | 'jornada_cerrada'
   | 'apertura_existente'
   | 'apertura_no_confirmada'
+  | 'movimiento_no_confirmado'
   | 'reintento_distinto'
   | 'conteo_requerido'
   | 'saldo_insuficiente'
