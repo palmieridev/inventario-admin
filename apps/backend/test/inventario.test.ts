@@ -710,7 +710,11 @@ test('A08: revierte líneas previas si falla la última y conserva claves entre 
     lineas: orden.map((e, i) => ({ ...e, cantidad: i === 2 ? '999999999999.999999' : '1' })),
   }), { codigo: 'saldo_excedido' });
   assert.deepEqual(await Promise.all(orden.map((e) => p.saldo(e.elementoId))), anterior);
-  const { rows: [apertura] } = await pool.query('SELECT clave_reintento FROM operaciones_inventario WHERE negocio_id = $1 LIMIT 1', [p.id]);
+  const { rows: [apertura] } = await pool.query(
+    'SELECT o.clave_reintento FROM aperturas_inventario a JOIN operaciones_inventario o ' +
+    'ON o.negocio_id = a.negocio_id AND o.id = a.operacion_id ' +
+    "WHERE a.negocio_id = $1 AND a.elemento_id = $2 AND o.tipo = 'apertura'",
+    [p.id, p.bebida.elementoId]);
   await assert.rejects(movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId,
     claveReintento: apertura.clave_reintento, lineas: [{ ...p.bebida, cantidad: '1' }] }), { codigo: 'reintento_distinto' });
 });
