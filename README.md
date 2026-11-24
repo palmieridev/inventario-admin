@@ -80,7 +80,7 @@ Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga 
 
 1. Abre el frontend e inicia sesión con una de las cuentas ficticias.
 2. Busca un elemento por nombre o variante, o filtra por categoría. Al seleccionarlo se muestran su unidad de control y su existencia si ya tiene un conteo.
-3. Con una jornada abierta, registra el conteo inicial de un elemento sin existencia. Un conteo de cero queda confirmado con su unidad. Si la confirmación se interrumpe, vuelve al mismo elemento en la misma pestaña para reintentar.
+3. Con una jornada abierta, registra el conteo inicial de un elemento sin existencia. Un conteo de cero queda confirmado con su unidad. Si la confirmación se interrumpe, recarga la pantalla de conteo en la misma pestaña. Puedes recuperar el resultado aunque el elemento se haya desactivado.
 4. Como propietario o encargado, usa **Nuevo elemento**, **Editar** o **Unidades** para administrar el catálogo. **Personal autorizado** permite dar de alta, habilitar y revocar cuentas. El personal que atiende clientes puede consultar y contar dentro de su negocio.
 
 ### Comandos del monorepositorio

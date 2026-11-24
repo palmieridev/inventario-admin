@@ -537,3 +537,29 @@ test('pide revisar un conteo si cambió la unidad o la variante mostrada', async
     ...datos, definicion: { ...descripcion, variante: 'Blanca', unidad: nueva },
   }), confirmado);
 });
+
+test('recupera la apertura original de un elemento inactivo sin permitir otra captura', async () => {
+  const puesto = await negocio('Puesto con elemento desactivado');
+  const jornadaId = await abrirJornada(puesto.id);
+  const unidad = await catalogo.crearUnidad(puesto.admin, { nombre: 'Pieza', simbolo: 'pza', decimales: 0 });
+  const definicion = { nombre: 'Agua', categoria: 'bebida' as const, variante: 'Jamaica' };
+  const elemento = await catalogo.crearElemento(puesto.admin, { ...definicion, unidadId: unidad.id });
+  const datos = {
+    jornadaId, unidadId: unidad.id, elementoId: elemento.id, cantidad: '0', claveReintento: randomUUID(),
+    definicion: { ...definicion, unidad },
+  };
+  const { definicion: _definicion, ...datosAnteriores } = datos;
+  const recuperarAnterior = { ...datosAnteriores, soloConfirmada: true };
+  await assert.rejects(inventario.registrarApertura(puesto.staff, recuperarAnterior),
+    { codigo: 'apertura_no_confirmada' });
+  assert.equal(await inventario.consultarExistencia(puesto.staff, elemento.id), null);
+  const apertura = await inventario.registrarApertura(puesto.staff, datos);
+
+  await catalogo.modificarElemento(puesto.admin, elemento.id, { ...elemento, activo: false });
+  assert.deepEqual(await catalogo.listarElementos(puesto.staff), []);
+  assert.deepEqual(await inventario.registrarApertura(puesto.staff, datos), apertura);
+  assert.deepEqual(await inventario.registrarApertura(puesto.staff, recuperarAnterior), apertura);
+  await assert.rejects(inventario.registrarApertura(puesto.staff, { ...datos, claveReintento: randomUUID() }),
+    { codigo: 'elemento_inactivo' });
+  assert.equal((await pool.query('SELECT id FROM operaciones_inventario WHERE negocio_id = $1', [puesto.id])).rowCount, 1);
+});

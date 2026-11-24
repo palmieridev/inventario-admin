@@ -78,9 +78,10 @@ export interface RegistroApertura {
   cantidad: string;
   claveReintento: string;
   definicion?: DefinicionApertura;
+  soloConfirmada?: boolean;
 }
 
-export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento' | 'definicion'> {
+export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento' | 'definicion' | 'soloConfirmada'> {
   operacionId: string;
   autorId: string;
   registradaEn: string;

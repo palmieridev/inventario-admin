@@ -1,11 +1,11 @@
 import type {
-  AperturaConfirmada, CuentaSesion, Existencia, JornadaAbierta, RegistroApertura, Unidad,
+  AperturaConfirmada, CuentaSesion, DatosUnidad, Existencia, JornadaAbierta, RegistroApertura,
 } from '@inventario/contracts';
 import { ErrorApi, solicitar } from './api';
 import { cargarCatalogo, nombreElemento } from './catalogo';
 import { mensajeError, mostrarAviso, revisarSesion } from './sesion';
 
-function validarCantidad(valor: string, unidad: Unidad): string {
+function validarCantidad(valor: string, unidad: DatosUnidad): string {
   const cantidad = valor.trim().replace(',', '.');
   if (!/^\d{1,12}(?:\.\d{1,6})?$/.test(cantidad)) {
     throw new Error('Escribe una cantidad de cero o más, con hasta doce cifras enteras y seis decimales.');
@@ -25,21 +25,39 @@ const fechaJornada = new Intl.DateTimeFormat('es-MX', {
 
 export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
   const id = new URLSearchParams(location.search).get('elemento');
-  const { elementos, unidades } = await cargarCatalogo();
-  const elemento = elementos.find((entrada) => entrada.id === id);
-  const unidad = elemento && unidades.get(elemento.unidadId);
-
-  if (!elemento || !unidad) {
+  if (!id) {
     document.querySelector<HTMLElement>('#detalle-no-disponible')!.hidden = false;
     return;
   }
 
-  const [{ existencia }, jornadas] = await Promise.all([
-    solicitar<{ existencia: Existencia | null }>('/inventario/elementos/' + elemento.id + '/existencia'),
-    solicitar<JornadaAbierta[]>('/inventario/jornadas'),
-  ]);
+  const claveLocal = ['apertura', sesion.negocioId, sesion.id, id].join(':');
+  const guardado = sessionStorage.getItem(claveLocal);
+  let pendiente = guardado ? JSON.parse(guardado) as RegistroApertura : undefined;
+  const definicionPendiente = pendiente?.definicion;
 
-  const titulo = nombreElemento(elemento);
+  // Una apertura confirmada puede recuperarse aunque el elemento ya no esté en el catálogo operativo.
+  const catalogo = definicionPendiente ? undefined : await cargarCatalogo();
+  const elemento = catalogo?.elementos.find((entrada) => entrada.id === id);
+  const unidadId = pendiente?.unidadId ?? elemento?.unidadId;
+  const unidad = definicionPendiente?.unidad ?? (unidadId && catalogo?.unidades.get(unidadId));
+  if ((!pendiente && !elemento) || !unidad) {
+    document.querySelector<HTMLElement>('#detalle-no-disponible')!.hidden = false;
+    return;
+  }
+
+  let existencia: Existencia | null = null;
+  let jornadas: JornadaAbierta[] = [];
+  if (!pendiente && elemento) {
+    const [saldo, abiertas] = await Promise.all([
+      solicitar<{ existencia: Existencia | null }>('/inventario/elementos/' + elemento.id + '/existencia'),
+      solicitar<JornadaAbierta[]>('/inventario/jornadas'),
+    ]);
+    existencia = saldo.existencia;
+    jornadas = abiertas;
+  }
+
+  const definicion = definicionPendiente ?? elemento;
+  const titulo = definicion ? nombreElemento(definicion) : 'Elemento del conteo pendiente';
   const detalle = document.querySelector<HTMLElement>('#detalle-conteo')!;
   const estado = document.querySelector<HTMLElement>('#estado-conteo')!;
   const confirmacion = document.querySelector<HTMLElement>('#confirmacion-conteo')!;
@@ -53,9 +71,6 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
   const errorCantidad = formulario.querySelector<HTMLElement>('#error-cantidad')!;
   const errorConteo = formulario.querySelector<HTMLElement>('#error-conteo')!;
 
-  const claveLocal = ['apertura', sesion.negocioId, sesion.id, elemento.id].join(':');
-  const guardado = sessionStorage.getItem(claveLocal);
-  let pendiente = guardado ? JSON.parse(guardado) as RegistroApertura : undefined;
   const mensajePendiente = 'La confirmación está pendiente. Reintenta para verificar el mismo conteo.';
 
   function mostrarPendiente(mensaje = mensajePendiente) {
@@ -74,8 +89,8 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
     'Unidad de control: ' + unidad.nombre + ' (' + unidad.simbolo + ')';
   detalle.hidden = false;
 
-  if (!pendiente && (!elemento.activo || existencia || jornadas.length === 0)) {
-    if (!elemento.activo) mostrarAviso(estado, 'El elemento está inactivo.');
+  if (!pendiente && (!elemento?.activo || existencia || jornadas.length === 0)) {
+    if (!elemento?.activo) mostrarAviso(estado, 'El elemento está inactivo.');
     else if (existencia) mostrarAviso(estado, 'Existencia registrada: ' + existencia.cantidad + ' ' + unidad.simbolo + '.');
     else mostrarAviso(estado, 'Se necesita una jornada abierta para registrar el conteo inicial.');
     return;
@@ -109,6 +124,7 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
     cantidad.removeAttribute('aria-invalid');
 
     if (!pendiente) {
+      if (!elemento) return;
       let valor: string;
       try {
         valor = validarCantidad(cantidad.value, unidad);
@@ -120,7 +136,7 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
       }
       const intento: RegistroApertura = {
         elementoId: elemento.id,
-        unidadId: unidad.id,
+        unidadId: elemento.unidadId,
         jornadaId: jornada.value,
         cantidad: valor,
         claveReintento: crypto.randomUUID(),
@@ -138,7 +154,8 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
     boton.disabled = true;
     mostrarPendiente('Confirmando el conteo…');
     try {
-      const apertura = await solicitar<AperturaConfirmada>('/inventario/aperturas', 'POST', pendiente);
+      const solicitud = pendiente.definicion ? pendiente : { ...pendiente, soloConfirmada: true };
+      const apertura = await solicitar<AperturaConfirmada>('/inventario/aperturas', 'POST', solicitud);
       sessionStorage.removeItem(claveLocal);
       formulario.hidden = true;
       mostrarAviso(estado, '');

@@ -13,6 +13,7 @@ type CodigoInventario =
   | 'jornada_no_iniciada'
   | 'jornada_cerrada'
   | 'apertura_existente'
+  | 'apertura_no_confirmada'
   | 'reintento_distinto';
 
 export class ErrorInventario extends Error {

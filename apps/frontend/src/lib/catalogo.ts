@@ -8,7 +8,7 @@ export const categorias: Record<Elemento['categoria'], string> = {
   empaque: 'Empaques',
 };
 
-export function nombreElemento(elemento: Elemento): string {
+export function nombreElemento(elemento: Pick<Elemento, 'nombre' | 'variante'>): string {
   return elemento.variante ? elemento.nombre + ' · ' + elemento.variante : elemento.nombre;
 }
 

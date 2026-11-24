@@ -6,7 +6,7 @@ import { enTransaccion } from '../db/transaccion.js';
 import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
 
-type DatosApertura = Omit<RegistroApertura, 'claveReintento' | 'definicion'>;
+type DatosApertura = Pick<RegistroApertura, 'elementoId' | 'unidadId' | 'jornadaId' | 'cantidad'>;
 
 function catalogoCambiado(): never {
   throw new ErrorInventario('catalogo_cambiado',
@@ -71,6 +71,10 @@ export function crearServicioApertura(pool: Pool) {
         const { negocio_id: negocioId, id: autorId } = await autorizar(cliente, identidad);
         const valores = objeto(entrada);
         const clave = identificador(valores.claveReintento, 'La clave de reintento');
+        const soloConfirmada = valores.soloConfirmada;
+        if (soloConfirmada !== undefined && typeof soloConfirmada !== 'boolean') {
+          invalidos('Indica si solo se consultará una apertura confirmada.');
+        }
         const datos: DatosApertura = {
           elementoId: identificador(valores.elementoId, 'El elemento'),
           unidadId: identificador(valores.unidadId, 'La unidad'),
@@ -80,6 +84,10 @@ export function crearServicioApertura(pool: Pool) {
 
         const previa = await buscarApertura(cliente, negocioId, clave);
         if (previa) return comprobarReintento(previa, autorId, datos);
+        if (soloConfirmada) {
+          throw new ErrorInventario('apertura_no_confirmada',
+            'El conteo anterior no tiene confirmación. Vuelve a abrir el elemento y revisa su existencia.');
+        }
 
         const { rows: [jornada] } = await cliente.query<{ iniciada: boolean; cerrada_en: Date | null }>(
           'SELECT iniciada_en <= CURRENT_TIMESTAMP AS iniciada, cerrada_en FROM jornadas ' +
