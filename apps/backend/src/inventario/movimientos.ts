@@ -85,7 +85,7 @@ export function crearServicioMovimientos(pool: Pool) {
     consultar(identidad: IdentidadInventario, id: string): Promise<MovimientoConfirmado> {
       return enTransaccion(pool, async (cliente) => {
         const usuario = await autorizar(cliente, identidad);
-        return consultar(cliente, usuario.negocio_id, identificador(id, 'El movimiento'));
+        return consultar(cliente, usuario.negocioId, identificador(id, 'El movimiento'));
       });
     },
 
@@ -96,7 +96,7 @@ export function crearServicioMovimientos(pool: Pool) {
         if (datos.tipo === 'ajuste' && usuario.rol !== 'admin') {
           throw new ErrorInventario('acceso_denegado', 'Solo el propietario o encargado puede autorizar ajustes.');
         }
-        const negocioId = usuario.negocio_id;
+        const negocioId = usuario.negocioId;
         const previa = await recuperar(cliente, negocioId, usuario.id, clave, datos);
         if (previa) return previa;
         const { rows: [jornada] } = await cliente.query<{ iniciada: boolean; cerrada_en: Date | null }>(

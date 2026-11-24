@@ -46,12 +46,12 @@ export function crearServicioApertura(pool: Pool) {
   return {
     listarJornadasAbiertas(identidad: IdentidadInventario): Promise<JornadaAbierta[]> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad);
+        const { negocioId } = await autorizar(cliente, identidad);
         const { rows } = await cliente.query<{ id: string; iniciadaEn: Date }>(
           'SELECT id, iniciada_en AS "iniciadaEn" FROM jornadas ' +
           'WHERE negocio_id = $1 AND iniciada_en <= CURRENT_TIMESTAMP AND cerrada_en IS NULL ' +
           'ORDER BY iniciada_en DESC, id',
-          [negocio_id],
+          [negocioId],
         );
         return rows.map(({ id, iniciadaEn }) => ({ id, iniciadaEn: iniciadaEn.toISOString() }));
       });
@@ -59,7 +59,7 @@ export function crearServicioApertura(pool: Pool) {
 
     registrarApertura(identidad: IdentidadInventario, entrada: unknown): Promise<Apertura> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id: negocioId, id: autorId } = await autorizar(cliente, identidad);
+        const { negocioId, id: autorId } = await autorizar(cliente, identidad);
         const valores = objeto(entrada);
         const clave = identificador(valores.claveReintento, 'La clave de reintento');
         const soloConfirmada = valores.soloConfirmada;
@@ -157,7 +157,7 @@ export function crearServicioApertura(pool: Pool) {
           's.actualizada_en AS "actualizadaEn" FROM elementos_inventario AS e LEFT JOIN existencias_inventario AS s ' +
           'ON s.negocio_id = e.negocio_id AND s.elemento_id = e.id ' +
           'WHERE e.negocio_id = $1 AND e.id = $2 AND (e.activo OR $3)',
-          [usuario.negocio_id, identificador(elementoId, 'El elemento'), usuario.rol === 'admin'],
+          [usuario.negocioId, identificador(elementoId, 'El elemento'), usuario.rol === 'admin'],
         );
         if (!existencia) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
         const { cantidad, actualizadaEn } = existencia;

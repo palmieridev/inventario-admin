@@ -61,10 +61,10 @@ export function crearCatalogo(pool: Pool) {
   return {
     listarUnidades(identidad: IdentidadInventario): Promise<Unidad[]> {
       return enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad);
+        const { negocioId } = await autorizar(cliente, identidad);
         const { rows } = await cliente.query<Unidad>(
           'SELECT ' + camposUnidad + ' FROM unidades_medida WHERE negocio_id = $1 ORDER BY nombre, id',
-          [negocio_id],
+          [negocioId],
         );
         return rows;
       });
@@ -72,12 +72,12 @@ export function crearCatalogo(pool: Pool) {
 
     crearUnidad(identidad: IdentidadInventario, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const datos = datosUnidad(entrada);
         const { rows: [unidad] } = await cliente.query<Unidad>(
           'INSERT INTO unidades_medida (negocio_id, nombre, simbolo, decimales) VALUES ($1, $2, $3, $4) ' +
           'RETURNING ' + camposUnidad,
-          [negocio_id, datos.nombre, datos.simbolo, datos.decimales],
+          [negocioId, datos.nombre, datos.simbolo, datos.decimales],
         );
         return unidad!;
       }));
@@ -85,12 +85,12 @@ export function crearCatalogo(pool: Pool) {
 
     modificarUnidad(identidad: IdentidadInventario, unidadId: string, entrada: unknown): Promise<Unidad> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(unidadId, 'La unidad');
         const datos = datosUnidad(entrada);
         const { rows: [actual] } = await cliente.query<Unidad>(
           'SELECT ' + camposUnidad + ' FROM unidades_medida WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
-          [negocio_id, id],
+          [negocioId, id],
         );
         if (!actual) throw new ErrorInventario('no_encontrado', 'La unidad no existe en el negocio.');
         if (actual.nombre === datos.nombre && actual.simbolo === datos.simbolo &&
@@ -98,7 +98,7 @@ export function crearCatalogo(pool: Pool) {
 
         const aperturas = await cliente.query(
           'SELECT 1 FROM aperturas_inventario WHERE negocio_id = $1 AND unidad_id = $2 LIMIT 1',
-          [negocio_id, id],
+          [negocioId, id],
         );
         if (aperturas.rowCount) {
           throw new ErrorInventario('unidad_con_historial', 'La unidad ya se usó en un conteo inicial.');
@@ -106,7 +106,7 @@ export function crearCatalogo(pool: Pool) {
         const { rows: [unidad] } = await cliente.query<Unidad>(
           'UPDATE unidades_medida SET nombre = $3, simbolo = $4, decimales = $5 WHERE negocio_id = $1 AND id = $2 ' +
           'RETURNING ' + camposUnidad,
-          [negocio_id, id, datos.nombre, datos.simbolo, datos.decimales],
+          [negocioId, id, datos.nombre, datos.simbolo, datos.decimales],
         );
         return unidad!;
       }));
@@ -118,7 +118,7 @@ export function crearCatalogo(pool: Pool) {
         const { rows } = await cliente.query<Elemento>(
           'SELECT ' + camposElemento + ' FROM elementos_inventario ' +
           'WHERE negocio_id = $1 AND (activo OR $2) ORDER BY categoria, nombre, variante, id',
-          [usuario.negocio_id, usuario.rol === 'admin'],
+          [usuario.negocioId, usuario.rol === 'admin'],
         );
         return rows;
       });
@@ -126,13 +126,13 @@ export function crearCatalogo(pool: Pool) {
 
     crearElemento(identidad: IdentidadInventario, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const datos = datosElemento(entrada);
-        await comprobarUnidad(cliente, negocio_id, datos.unidadId);
+        await comprobarUnidad(cliente, negocioId, datos.unidadId);
         const { rows: [elemento] } = await cliente.query<Elemento>(
           'INSERT INTO elementos_inventario (negocio_id, unidad_id, categoria, nombre, variante, activo) ' +
           'VALUES ($1, $2, $3, $4, $5, $6) RETURNING ' + camposElemento,
-          [negocio_id, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? true],
+          [negocioId, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? true],
         );
         return elemento!;
       }));
@@ -140,19 +140,19 @@ export function crearCatalogo(pool: Pool) {
 
     modificarElemento(identidad: IdentidadInventario, elementoId: string, entrada: unknown): Promise<Elemento> {
       return guardarUnico(() => enTransaccion(pool, async (cliente) => {
-        const { negocio_id } = await autorizar(cliente, identidad, 'admin');
+        const { negocioId } = await autorizar(cliente, identidad, 'admin');
         const id = identificador(elementoId, 'El elemento');
         const datos = datosElemento(entrada);
         const { rows: [actual] } = await cliente.query<Elemento>(
           'SELECT ' + camposElemento + ' FROM elementos_inventario WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
-          [negocio_id, id],
+          [negocioId, id],
         );
         if (!actual) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
         if (actual.unidadId !== datos.unidadId) {
-          await comprobarUnidad(cliente, negocio_id, datos.unidadId);
+          await comprobarUnidad(cliente, negocioId, datos.unidadId);
           const aperturas = await cliente.query(
             'SELECT 1 FROM aperturas_inventario WHERE negocio_id = $1 AND elemento_id = $2',
-            [negocio_id, id],
+            [negocioId, id],
           );
           if (aperturas.rowCount) {
             throw new ErrorInventario('unidad_con_historial', 'El elemento ya tiene un conteo inicial.');
@@ -162,7 +162,7 @@ export function crearCatalogo(pool: Pool) {
         const { rows: [elemento] } = await cliente.query<Elemento>(
           'UPDATE elementos_inventario SET unidad_id = $3, categoria = $4, nombre = $5, variante = $6, activo = $7 ' +
           'WHERE negocio_id = $1 AND id = $2 RETURNING ' + camposElemento,
-          [negocio_id, id, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? actual.activo],
+          [negocioId, id, datos.unidadId, datos.categoria, datos.nombre, datos.variante, datos.activo ?? actual.activo],
         );
         return elemento!;
       }));

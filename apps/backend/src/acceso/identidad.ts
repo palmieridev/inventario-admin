@@ -1,14 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { CuentaSesion, RolUsuario } from '@inventario/contracts';
+import type { CuentaSesion } from '@inventario/contracts';
 import type { PoolClient } from 'pg';
+import {
+  buscarSesionVigente, buscarUsuarioActivo, buscarUsuarioDeSesion, type BuscarUsuarioActivoRow,
+} from '../db/consultas/acceso_sql.js';
 import { ErrorInventario, identificador } from '../inventario/validacion.js';
-
-export interface UsuarioInventario {
-  id: string;
-  negocio_id: string;
-  nombre: string;
-  rol: RolUsuario;
-}
 
 export interface IdentidadSesion {
   huellaSesion: string;
@@ -36,23 +32,16 @@ export async function autorizar(
   cliente: PoolClient,
   identidad: IdentidadInventario,
   rol?: 'admin',
-): Promise<UsuarioInventario> {
-  const sesion = typeof identidad === 'string' ? undefined : identidad.huellaSesion;
-  const { rows: [usuario] } = await cliente.query<UsuarioInventario>(
-    'SELECT id, negocio_id, nombre, rol FROM usuarios WHERE activo AND id = ' +
-      (sesion !== undefined ? '(SELECT usuario_id FROM sesiones WHERE huella = $1)' : '$1') +
-      ' FOR SHARE',
-    [typeof identidad === 'string' ? identificador(identidad, 'El usuario') : identidad.huellaSesion],
-  );
+): Promise<BuscarUsuarioActivoRow> {
+  const usuario = typeof identidad === 'string'
+    ? await buscarUsuarioActivo(cliente, { usuarioId: identificador(identidad, 'El usuario') })
+    : await buscarUsuarioDeSesion(cliente, { huella: identidad.huellaSesion });
 
   if (typeof identidad !== 'string') {
     if (!usuario) sesionRequerida();
     // La cuenta se bloquea antes de la sesión, en el mismo orden que la revocación.
-    const vigente = await cliente.query(
-      'SELECT 1 FROM sesiones WHERE huella = $1 AND usuario_id = $2 AND vence_en > clock_timestamp() FOR SHARE',
-      [sesion, usuario.id],
-    );
-    if (!vigente.rowCount) sesionRequerida();
+    const vigente = await buscarSesionVigente(cliente, { huella: identidad.huellaSesion, usuarioId: usuario.id });
+    if (!vigente) sesionRequerida();
     comprobarCuentaEsperada(identidad, usuario.id);
   }
 
@@ -62,6 +51,7 @@ export async function autorizar(
   return usuario;
 }
 
-export function datosSesion(usuario: UsuarioInventario): CuentaSesion {
-  return { id: usuario.id, negocioId: usuario.negocio_id, nombre: usuario.nombre, rol: usuario.rol };
+export function datosSesion({ id, negocioId, nombre, rol }: BuscarUsuarioActivoRow): CuentaSesion {
+  if (rol !== 'admin' && rol !== 'staff') throw new Error('La cuenta tiene un rol inválido.');
+  return { id, negocioId, nombre, rol };
 }
