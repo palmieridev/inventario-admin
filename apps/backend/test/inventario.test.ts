@@ -502,3 +502,38 @@ test('vincula las solicitudes de una pantalla con la cuenta que la cargó', asyn
   assert.equal(alta.statusCode, 201);
   assert.equal((await app.inject({ method: 'DELETE', url: '/api/sesion', headers })).statusCode, 204);
 });
+
+test('pide revisar un conteo si cambió la unidad o la variante mostrada', async () => {
+  const puesto = await negocio('Puesto con catálogo actualizado');
+  const jornadaId = await abrirJornada(puesto.id);
+  const original = { nombre: 'Kilogramo', simbolo: 'kg', decimales: 3 };
+  const nueva = { nombre: 'Gramo', simbolo: 'g', decimales: 0 };
+  const unidad = await catalogo.crearUnidad(puesto.admin, original);
+  const descripcion = { categoria: 'insumo' as const, nombre: 'Masa', variante: 'Azul' };
+  const elemento = await catalogo.crearElemento(puesto.admin, { ...descripcion, unidadId: unidad.id });
+  const datos = {
+    jornadaId, unidadId: unidad.id, elementoId: elemento.id, cantidad: '2', claveReintento: randomUUID(),
+  };
+
+  await catalogo.modificarUnidad(puesto.admin, unidad.id, nueva);
+  await assert.rejects(inventario.registrarApertura(puesto.staff, {
+    ...datos, definicion: { ...descripcion, unidad: original },
+  }), { codigo: 'catalogo_cambiado' });
+  assert.equal(await inventario.consultarExistencia(puesto.staff, elemento.id), null);
+
+  await catalogo.modificarElemento(puesto.admin, elemento.id, { ...descripcion, variante: 'Blanca', unidadId: unidad.id });
+  await assert.rejects(inventario.registrarApertura(puesto.staff, {
+    ...datos, definicion: { ...descripcion, unidad: nueva },
+  }), { codigo: 'catalogo_cambiado' });
+  assert.equal(await inventario.consultarExistencia(puesto.staff, elemento.id), null);
+
+  const confirmado = await inventario.registrarApertura(puesto.staff, {
+    ...datos, definicion: { ...descripcion, variante: 'Blanca', unidad: nueva },
+  });
+  assert.equal(confirmado.cantidad, '2');
+  assert.equal((await inventario.consultarExistencia(puesto.staff, elemento.id))?.cantidad, '2');
+  await catalogo.modificarElemento(puesto.admin, elemento.id, { ...descripcion, variante: 'Amarilla', unidadId: unidad.id });
+  assert.deepEqual(await inventario.registrarApertura(puesto.staff, {
+    ...datos, definicion: { ...descripcion, variante: 'Blanca', unidad: nueva },
+  }), confirmado);
+});

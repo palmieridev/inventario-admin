@@ -23,6 +23,7 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   acceso_denegado: 403,
   no_encontrado: 404,
   catalogo_duplicado: 409,
+  catalogo_cambiado: 409,
   unidad_con_historial: 409,
   elemento_inactivo: 409,
   jornada_no_iniciada: 409,

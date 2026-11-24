@@ -124,6 +124,12 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
         jornadaId: jornada.value,
         cantidad: valor,
         claveReintento: crypto.randomUUID(),
+        definicion: {
+          nombre: elemento.nombre,
+          variante: elemento.variante,
+          categoria: elemento.categoria,
+          unidad: { nombre: unidad.nombre, simbolo: unidad.simbolo, decimales: unidad.decimales },
+        },
       };
       sessionStorage.setItem(claveLocal, JSON.stringify(intento));
       pendiente = intento;
@@ -161,7 +167,8 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
         } else {
           mostrarAviso(errorConteo, mensaje);
         }
-        if (jornadas.length === 0 || ['apertura_existente', 'elemento_inactivo'].includes(error.codigo)) {
+        if (jornadas.length === 0 ||
+          ['apertura_existente', 'elemento_inactivo', 'catalogo_cambiado'].includes(error.codigo)) {
           boton.disabled = true;
         }
       } else {

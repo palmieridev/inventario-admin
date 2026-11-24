@@ -7,6 +7,7 @@ type CodigoInventario =
   | 'acceso_denegado'
   | 'no_encontrado'
   | 'catalogo_duplicado'
+  | 'catalogo_cambiado'
   | 'unidad_con_historial'
   | 'elemento_inactivo'
   | 'jornada_no_iniciada'

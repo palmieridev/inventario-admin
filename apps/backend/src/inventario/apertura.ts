@@ -1,10 +1,17 @@
-import type { AperturaConfirmada, Existencia as ExistenciaRespuesta, JornadaAbierta, RegistroApertura } from '@inventario/contracts';
+import type {
+  AperturaConfirmada, DatosUnidad, Elemento, Existencia as ExistenciaRespuesta, JornadaAbierta, RegistroApertura,
+} from '@inventario/contracts';
 import type { Pool, PoolClient } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
 import { autorizar, type IdentidadInventario } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
 
-type DatosApertura = Omit<RegistroApertura, 'claveReintento'>;
+type DatosApertura = Omit<RegistroApertura, 'claveReintento' | 'definicion'>;
+
+function catalogoCambiado(): never {
+  throw new ErrorInventario('catalogo_cambiado',
+    'Cambió el elemento o su unidad de control. Vuelve a abrir el elemento y revisa el conteo.');
+}
 
 interface Apertura extends Omit<AperturaConfirmada, 'registradaEn'> {
   registradaEn: Date;
@@ -94,19 +101,32 @@ export function crearServicioApertura(pool: Pool) {
         if (!jornada.iniciada) throw new ErrorInventario('jornada_no_iniciada', 'La jornada todavía no ha iniciado.');
         if (jornada.cerrada_en) throw new ErrorInventario('jornada_cerrada', 'La jornada ya se cerró.');
 
-        const { rows: [elemento] } = await cliente.query<{ unidad_id: string; activo: boolean }>(
-          'SELECT unidad_id, activo FROM elementos_inventario WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
+        const { rows: [elemento] } = await cliente.query<Omit<Elemento, 'id'>>(
+          'SELECT unidad_id AS "unidadId", nombre, variante, categoria, activo FROM elementos_inventario ' +
+          'WHERE negocio_id = $1 AND id = $2 FOR UPDATE',
           [negocioId, datos.elementoId],
         );
         if (!elemento) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
         if (!elemento.activo) throw new ErrorInventario('elemento_inactivo', 'El elemento está inactivo.');
-        if (elemento.unidad_id !== datos.unidadId) invalidos('Usa la unidad de control del elemento.');
+        const definicion = valores.definicion === undefined ? undefined : objeto(valores.definicion);
+        if (elemento.unidadId !== datos.unidadId) {
+          if (definicion) catalogoCambiado();
+          invalidos('Usa la unidad de control del elemento.');
+        }
 
-        const { rows: [unidad] } = await cliente.query<{ decimales: number }>(
-          'SELECT decimales FROM unidades_medida WHERE negocio_id = $1 AND id = $2 FOR SHARE',
+        const { rows: [unidad] } = await cliente.query<DatosUnidad>(
+          'SELECT nombre, simbolo, decimales FROM unidades_medida WHERE negocio_id = $1 AND id = $2 FOR SHARE',
           [negocioId, datos.unidadId],
         );
         if (!unidad) throw new ErrorInventario('no_encontrado', 'La unidad no existe en el negocio.');
+        if (definicion) {
+          const esperada = objeto(definicion.unidad);
+          if (definicion.nombre !== elemento.nombre || definicion.variante !== elemento.variante ||
+            definicion.categoria !== elemento.categoria || esperada.nombre !== unidad.nombre ||
+            esperada.simbolo !== unidad.simbolo || esperada.decimales !== unidad.decimales) {
+            catalogoCambiado();
+          }
+        }
         if ((datos.cantidad.split('.')[1]?.length ?? 0) > unidad.decimales) {
           invalidos('La cantidad excede los decimales permitidos por la unidad de control.');
         }

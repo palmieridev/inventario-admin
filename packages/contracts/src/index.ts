@@ -67,15 +67,20 @@ export interface JornadaAbierta {
   iniciadaEn: string;
 }
 
+export interface DefinicionApertura extends Pick<Elemento, 'nombre' | 'variante' | 'categoria'> {
+  unidad: DatosUnidad;
+}
+
 export interface RegistroApertura {
   elementoId: string;
   unidadId: string;
   jornadaId: string;
   cantidad: string;
   claveReintento: string;
+  definicion?: DefinicionApertura;
 }
 
-export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento'> {
+export interface AperturaConfirmada extends Omit<RegistroApertura, 'claveReintento' | 'definicion'> {
   operacionId: string;
   autorId: string;
   registradaEn: string;
