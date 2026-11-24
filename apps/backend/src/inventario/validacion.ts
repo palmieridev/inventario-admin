@@ -1,5 +1,7 @@
 type CodigoInventario =
   | 'datos_invalidos'
+  | 'credenciales_invalidas'
+  | 'sesion_requerida'
   | 'acceso_denegado'
   | 'no_encontrado'
   | 'catalogo_duplicado'

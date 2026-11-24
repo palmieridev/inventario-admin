@@ -14,9 +14,12 @@ function port(name: string): number {
   return Number(value);
 }
 
+const host = required('API_HOST');
+
 export const config = {
-  host: required('API_HOST'),
+  host,
   port: port('API_PORT'),
+  cookieSegura: process.env.NODE_ENV === 'production' || !['127.0.0.1', '::1', 'localhost'].includes(host),
   database: {
     host: required('POSTGRES_HOST'),
     port: port('POSTGRES_PORT'),

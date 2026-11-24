@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { prepararClave } from '../src/acceso/credenciales.js';
+import { createApp } from '../src/app.js';
 import { crearServicioApertura } from '../src/inventario/apertura.js';
 import { crearCatalogo } from '../src/inventario/catalogo.js';
 
@@ -15,6 +17,7 @@ const base = new pg.Pool({ connectionString: url });
 const conexion = new URL(url);
 conexion.searchParams.set('options', '-csearch_path=' + esquema);
 const pool = new pg.Pool({ connectionString: conexion.toString() });
+const app = createApp(new pg.Pool({ connectionString: conexion.toString() }), { cookieSegura: true, logger: false });
 const catalogo = crearCatalogo(pool);
 const inventario = crearServicioApertura(pool);
 const migraciones = fileURLToPath(new URL('../migrations/', import.meta.url));
@@ -29,6 +32,7 @@ before(async () => {
 });
 
 after(async () => {
+  await app.close();
   await pool.end();
   try {
     await base.query('DROP SCHEMA IF EXISTS ' + esquema + ' CASCADE');
@@ -48,6 +52,63 @@ async function negocio(nombre: string) {
   );
   return { id, admin, staff };
 }
+
+const contrasena = 'Credencial ficticia para pruebas';
+
+async function asignarCuenta(id: string, cuenta: string) {
+  await pool.query('UPDATE usuarios SET cuenta = $2, clave_derivada = $3 WHERE id = $1',
+    [id, cuenta, await prepararClave(contrasena)]);
+}
+
+async function iniciarSesion(cuenta: string) {
+  const respuesta = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta, contrasena },
+  });
+  assert.equal(respuesta.statusCode, 200, respuesta.body);
+  const cabecera = respuesta.headers['set-cookie'];
+  assert.equal(typeof cabecera, 'string');
+  return { respuesta, cabecera: cabecera as string, cookie: (cabecera as string).split(';')[0]! };
+}
+
+test('emite sesiones opacas, consulta la cuenta vigente y cierra o expira cada sesión por separado', async () => {
+  const puesto = await negocio('Puesto con acceso');
+  await asignarCuenta(puesto.admin, 'admin.sesion');
+  const anonima = await app.inject({ method: 'GET', url: '/api/sesion' });
+  assert.equal(anonima.statusCode, 401);
+
+  const rechazo = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta: 'admin.sesion', contrasena: 'incorrecta' },
+  });
+  assert.equal(rechazo.statusCode, 401);
+  assert.equal(rechazo.json().codigo, 'credenciales_invalidas');
+  assert.equal(rechazo.headers['set-cookie'], undefined);
+
+  const primera = await iniciarSesion(' ADMIN.SESION ');
+  const segunda = await iniciarSesion('admin.sesion');
+  assert.notEqual(primera.cookie, segunda.cookie);
+  assert.match(primera.cabecera, /HttpOnly/);
+  assert.match(primera.cabecera, /SameSite=Strict/);
+  assert.match(primera.cabecera, /Secure/);
+  assert.equal(primera.respuesta.headers['cache-control'], 'no-store');
+  const perfil = { id: puesto.admin, negocioId: puesto.id, nombre: 'Encargado', rol: 'admin' };
+  assert.deepEqual(primera.respuesta.json(), perfil);
+  const token = primera.cookie.split('=')[1]!;
+  const huella = createHash('sha256').update(token).digest('hex');
+  assert.equal((await pool.query('SELECT usuario_id FROM sesiones WHERE huella = $1', [huella])).rows[0].usuario_id,
+    puesto.admin);
+
+  const consultar = (cookie: string) => app.inject({ method: 'GET', url: '/api/sesion', headers: { cookie } });
+  assert.deepEqual((await consultar(primera.cookie)).json(), perfil);
+
+  const cierre = await app.inject({ method: 'DELETE', url: '/api/sesion', headers: { cookie: primera.cookie } });
+  assert.equal(cierre.statusCode, 204);
+  assert.match(String(cierre.headers['set-cookie']), /inventario_sesion=;/);
+  assert.equal((await consultar(primera.cookie)).statusCode, 401);
+  assert.equal((await consultar(segunda.cookie)).statusCode, 200);
+
+  await pool.query("UPDATE sesiones SET vence_en = now() - interval '1 second' WHERE usuario_id = $1", [puesto.admin]);
+  assert.equal((await consultar(segunda.cookie)).statusCode, 401);
+});
 
 test('mantiene categorías, variantes y unidades independientes por negocio', async () => {
   const puesto = await negocio('Tamales de prueba');

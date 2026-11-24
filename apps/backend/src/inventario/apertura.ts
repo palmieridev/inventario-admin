@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 import { enTransaccion } from '../db/transaccion.js';
-import { autorizar } from './acceso.js';
+import { autorizar } from '../acceso/identidad.js';
 import { ErrorInventario, identificador, invalidos, objeto } from './validacion.js';
 
 interface DatosApertura {
