@@ -60,14 +60,14 @@ async function asignarCuenta(id: string, cuenta: string) {
     [id, cuenta, await prepararClave(contrasena)]);
 }
 
-async function iniciarSesion(cuenta: string) {
+async function iniciarSesion(cuenta: string, remoteAddress = '127.0.0.1') {
   const respuesta = await app.inject({
-    method: 'POST', url: '/api/sesion', payload: { cuenta, contrasena },
+    method: 'POST', url: '/api/sesion', payload: { cuenta, contrasena }, remoteAddress,
   });
   assert.equal(respuesta.statusCode, 200, respuesta.body);
   const cabecera = respuesta.headers['set-cookie'];
   assert.equal(typeof cabecera, 'string');
-  return { respuesta, cabecera: cabecera as string, cookie: (cabecera as string).split(';')[0]! };
+  return { respuesta, cabecera, cookie: cabecera.split(';')[0]! };
 }
 
 test('emite sesiones opacas, consulta la cuenta vigente y cierra o expira cada sesión por separado', async () => {
@@ -108,6 +108,73 @@ test('emite sesiones opacas, consulta la cuenta vigente y cierra o expira cada s
 
   await pool.query("UPDATE sesiones SET vence_en = now() - interval '1 second' WHERE usuario_id = $1", [puesto.admin]);
   assert.equal((await consultar(segunda.cookie)).statusCode, 401);
+});
+
+test('limita los intentos de inicio de sesión por dirección', async () => {
+  const intentar = (remoteAddress: string) => app.inject({
+    method: 'POST', url: '/api/sesion', payload: { cuenta: 'cuenta.inexistente' }, remoteAddress,
+  });
+  for (let intento = 0; intento < 10; intento++) {
+    assert.equal((await intentar('192.0.2.10')).statusCode, 401);
+  }
+  const limitado = await intentar('192.0.2.10');
+  assert.equal(limitado.statusCode, 429, limitado.body);
+  assert.equal(limitado.json().codigo, 'limite_de_intentos');
+  assert.equal((await intentar('192.0.2.11')).statusCode, 401);
+});
+
+test('restringe el alta y la revocación a admin del negocio e invalida todas las sesiones de staff', async () => {
+  const puesto = await negocio('Puesto de accesos');
+  const otro = await negocio('Puesto vecino de accesos');
+  await asignarCuenta(puesto.admin, 'admin.personal');
+  const direccion = '192.0.2.20';
+  const admin = await iniciarSesion('admin.personal', direccion);
+  const alta = { cuenta: 'Staff.Alta', contrasena, nombre: 'Caja' };
+  const solicitar = (cookie: string, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
+    app.inject({ method, url, headers: { cookie }, payload });
+  const crear = await solicitar(admin.cookie, 'POST', '/api/personal', {
+    ...alta, negocioId: otro.id, rol: 'admin',
+  });
+  assert.equal(crear.statusCode, 201, crear.body);
+  const personalId = crear.json().id;
+  assert.deepEqual(crear.json(), { id: personalId, cuenta: 'staff.alta', nombre: 'Caja', activo: true });
+  const repetida = await solicitar(admin.cookie, 'POST', '/api/personal', alta);
+  assert.equal(repetida.statusCode, 409);
+
+  const primera = await iniciarSesion('staff.alta', direccion);
+  const segunda = await iniciarSesion('staff.alta', direccion);
+  assert.deepEqual(primera.respuesta.json(), { id: personalId, negocioId: puesto.id, nombre: 'Caja', rol: 'staff' });
+  assert.equal((await solicitar(primera.cookie, 'POST', '/api/personal', alta)).statusCode, 403);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/personal')).statusCode, 403);
+  const cambiar = (cookie: string, id: string, payload: object) =>
+    solicitar(cookie, 'PATCH', '/api/personal/' + id, payload);
+  assert.equal((await cambiar(primera.cookie, personalId, { activo: false })).statusCode, 403);
+  assert.equal((await cambiar(admin.cookie, otro.staff, { activo: false })).statusCode, 404);
+  assert.equal((await cambiar(admin.cookie, puesto.admin, { activo: false })).statusCode, 404);
+  const listado = await solicitar(admin.cookie, 'GET', '/api/personal');
+  assert.equal(listado.statusCode, 200);
+  assert.deepEqual(listado.json().map((p: { id: string }) => p.id).sort(), [personalId, puesto.staff].sort());
+
+  const revocar = await cambiar(admin.cookie, personalId, { activo: false });
+  assert.equal(revocar.statusCode, 200);
+  assert.equal(revocar.json().activo, false);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await solicitar(segunda.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  const inactiva = await app.inject({
+    method: 'POST', url: '/api/sesion', payload: alta, remoteAddress: direccion,
+  });
+  assert.equal(inactiva.statusCode, 401);
+
+  assert.equal((await cambiar(admin.cookie, personalId, { activo: true })).statusCode, 200);
+  assert.equal((await solicitar(primera.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await solicitar(segunda.cookie, 'GET', '/api/sesion')).statusCode, 401);
+  assert.equal((await iniciarSesion('staff.alta', direccion)).respuesta.json().id, personalId);
+
+  const previa = await cambiar(admin.cookie, puesto.staff, {
+    activo: true, credenciales: { cuenta: 'staff.anterior', contrasena },
+  });
+  assert.equal(previa.statusCode, 200, previa.body);
+  assert.equal((await iniciarSesion('staff.anterior', direccion)).respuesta.json().id, puesto.staff);
 });
 
 test('mantiene categorías, variantes y unidades independientes por negocio', async () => {

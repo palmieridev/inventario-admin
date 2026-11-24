@@ -20,3 +20,18 @@ export interface CuentaSesion {
   nombre: string;
   rol: RolUsuario;
 }
+
+export interface AltaPersonal extends InicioSesion {
+  nombre: string;
+}
+
+export interface CuentaPersonal {
+  id: string;
+  nombre: string;
+  cuenta: string | null;
+  activo: boolean;
+}
+
+export type CambioAccesoPersonal =
+  | { activo: false }
+  | { activo: true; credenciales?: InicioSesion };

@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import type { HealthResponse, ReadinessResponse } from '@inventario/contracts';
 import type { Pool } from 'pg';
+import { registrarRutasPersonal } from './acceso/rutas-personal.js';
 import { registrarRutasSesion } from './acceso/rutas-sesion.js';
 import { ErrorInventario } from './inventario/validacion.js';
 
@@ -14,6 +15,7 @@ interface OpcionesApp {
 const estadosError: Record<ErrorInventario['codigo'], number> = {
   datos_invalidos: 400,
   credenciales_invalidas: 401,
+  cuenta_ocupada: 409,
   sesion_requerida: 401,
   acceso_denegado: 403,
   no_encontrado: 404,
@@ -77,6 +79,7 @@ export function createApp(pool: Pool, { cookieSegura, logger = true }: OpcionesA
     await api.register(cookie);
     await api.register(rateLimit, { global: false });
     registrarRutasSesion(api, pool, cookieSegura);
+    registrarRutasPersonal(api, pool);
   }, { prefix: '/api' });
 
   return app;
