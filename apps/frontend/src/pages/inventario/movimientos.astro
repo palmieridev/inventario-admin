@@ -29,6 +29,12 @@ import InventarioLayout from '../../layouts/InventarioLayout.astro';
         <label for="motivo">Motivo</label>
         <select id="motivo"></select>
       </div>
+      <div id="campo-motivo-ajuste" class="campo" hidden>
+        <label for="motivo-ajuste">Motivo de la corrección</label>
+        <input id="motivo-ajuste" maxlength="240" placeholder="Ej. Diferencia de conteo"
+          aria-describedby="error-motivo-ajuste" />
+        <p id="error-motivo-ajuste" class="error" role="alert" hidden></p>
+      </div>
       <div id="campo-observacion" class="campo" hidden>
         <label for="observacion">Observación (opcional)</label>
         <input id="observacion" maxlength="500" aria-describedby="error-observacion" />
