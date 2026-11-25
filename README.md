@@ -6,7 +6,7 @@ El proyecto busca apoyar el registro interno de existencias durante la preparaci
 
 ## Estado del proyecto
 
-El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. A07 incorpora las pantallas móviles de acceso, inventario, conteo inicial y administración del catálogo y del personal. A08 agrega la API de compras, tandas, salidas, consumos, mermas y ajustes autorizados, con confirmación atómica y reintentos sin duplicados. Los formularios de movimientos corresponden a A10. Véase el [contrato de la API](apps/backend/README.md#movimientos-y-producción-a08).
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. A07 incorpora las pantallas móviles de acceso, inventario, conteo inicial y administración del catálogo y del personal. A08 agrega la API de compras, tandas, salidas, consumos, mermas y ajustes autorizados, con confirmación atómica y reintentos sin duplicados. Los formularios de movimientos corresponden a A10. Véase el [contrato de la API](apps/backend/README.md#movimientos-producción-y-persistencia-a08a09).
 
 ## Estructura
 

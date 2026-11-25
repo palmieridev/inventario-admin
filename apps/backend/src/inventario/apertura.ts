@@ -4,7 +4,7 @@ import type {
 import type { Pool } from 'pg';
 import {
   buscarAperturaPorClave, buscarExistencia, insertarApertura, insertarExistencia, leerJornadaBloqueada,
-  listarJornadasAbiertas, registrarOperacion,
+  listarJornadasAbiertas, registrarOperacion, type BuscarAperturaPorClaveRow,
 } from '../db/consultas/apertura_sql.js';
 import { bloquearElemento, leerUnidadBloqueada } from '../db/consultas/catalogo_sql.js';
 import { enTransaccion } from '../db/transaccion.js';
@@ -26,13 +26,13 @@ interface Existencia extends Omit<ExistenciaRespuesta, 'actualizadaEn'> {
   actualizadaEn: Date;
 }
 
-function comprobarReintento(apertura: Apertura | null, autorId: string, datos: DatosApertura): Apertura {
+function comprobarReintento(apertura: BuscarAperturaPorClaveRow | null, autorId: string, datos: DatosApertura): Apertura {
   if (!apertura || apertura.autorId !== autorId || apertura.jornadaId !== datos.jornadaId ||
     apertura.elementoId !== datos.elementoId || apertura.unidadId !== datos.unidadId ||
     apertura.cantidad !== datos.cantidad) {
     throw new ErrorInventario('reintento_distinto', 'La clave ya corresponde a otra operación.');
   }
-  return apertura;
+  return { ...datos, operacionId: apertura.operacionId, autorId, registradaEn: apertura.registradaEn };
 }
 
 export function crearServicioApertura(pool: Pool) {

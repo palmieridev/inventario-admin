@@ -109,6 +109,7 @@ interface BaseMovimiento {
   jornadaId: string;
   claveReintento: string;
   observacion?: string;
+  soloConfirmada?: boolean;
 }
 
 export type RegistroMovimiento = BaseMovimiento & (

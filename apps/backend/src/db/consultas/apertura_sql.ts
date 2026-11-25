@@ -7,9 +7,9 @@ interface Client {
 
 export const buscarAperturaPorClaveQuery = `-- name: BuscarAperturaPorClave :one
 SELECT o.id AS operacion_id, o.autor_id, o.jornada_id, o.registrada_en, a.elemento_id, a.unidad_id,
-       a.cantidad::text AS cantidad
+       a.cantidad
 FROM operaciones_inventario AS o
-JOIN aperturas_inventario AS a ON a.negocio_id = o.negocio_id AND a.operacion_id = o.id
+LEFT JOIN aperturas_inventario AS a ON a.negocio_id = o.negocio_id AND a.operacion_id = o.id
 WHERE o.negocio_id = $1 AND o.clave_reintento = $2`;
 
 export interface BuscarAperturaPorClaveArgs {
@@ -22,9 +22,9 @@ export interface BuscarAperturaPorClaveRow {
     autorId: string;
     jornadaId: string;
     registradaEn: Date;
-    elementoId: string;
-    unidadId: string;
-    cantidad: string;
+    elementoId: string | null;
+    unidadId: string | null;
+    cantidad: string | null;
 }
 
 export async function buscarAperturaPorClave(client: Client, args: BuscarAperturaPorClaveArgs): Promise<BuscarAperturaPorClaveRow | null> {

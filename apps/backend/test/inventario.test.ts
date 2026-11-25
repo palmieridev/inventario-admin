@@ -792,3 +792,81 @@ test('A08: rechaza jornada futura, elemento inactivo y fracciones fuera de la un
   await assert.rejects(movimientos.registrar(p.staff, { ...compra,
     lineas: [{ elementoId: elemento.id, unidadId: unidad.id, cantidad: '0.1' }] }), { codigo: 'datos_invalidos' });
 });
+
+test('A09: consulta una confirmación por clave sin crear movimientos', async () => {
+  const p = await escenarioMovimientos();
+  const otro = await escenarioMovimientos();
+  await asignarCuenta(p.staff, 'a09.staff');
+  const { cookie } = await iniciarSesion('a09.staff');
+  const compra = { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '2' }] };
+  const enviar = (payload: object) => app.inject({ method: 'POST', url: '/api/inventario/movimientos',
+    payload, headers: { cookie } });
+
+  const invalida = await enviar({ ...compra, soloConfirmada: 'true' });
+  assert.equal(invalida.statusCode, 400, invalida.body);
+  const pendiente = await enviar({ ...compra, soloConfirmada: true });
+  assert.equal(pendiente.statusCode, 409, pendiente.body);
+  assert.equal(pendiente.json().codigo, 'movimiento_no_confirmado');
+  assert.equal(await p.saldo(p.bebida.elementoId), '10');
+
+  const confirmada = await enviar(compra);
+  assert.equal(confirmada.statusCode, 200, confirmada.body);
+  await pool.query('UPDATE jornadas SET cerrada_en = now() WHERE id = $1', [p.jornadaId]);
+  const recuperada = await enviar({ ...compra, soloConfirmada: true,
+    lineas: [{ ...p.bebida, cantidad: '2.00' }] });
+  assert.equal(recuperada.statusCode, 200, recuperada.body);
+  assert.deepEqual(recuperada.json(), confirmada.json());
+  assert.equal(await p.saldo(p.bebida.elementoId), '12');
+
+  const cambiada = await enviar({ ...compra, soloConfirmada: true, lineas: [{ ...p.bebida, cantidad: '3' }] });
+  assert.equal(cambiada.statusCode, 409, cambiada.body);
+  assert.equal(cambiada.json().codigo, 'reintento_distinto');
+  await assert.rejects(movimientos.registrar(p.admin, { ...compra, soloConfirmada: true }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(movimientos.registrar(otro.staff, { ...compra, soloConfirmada: true }),
+    { codigo: 'movimiento_no_confirmado' });
+});
+
+test('A09: una clave de movimiento también se rechaza al consultar una apertura', async () => {
+  const p = await escenarioMovimientos();
+  const otro = await escenarioMovimientos();
+  const claveReintento = randomUUID();
+  await movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId, claveReintento,
+    lineas: [{ ...p.bebida, cantidad: '2' }] });
+
+  const apertura = { ...p.bebida, jornadaId: p.jornadaId, cantidad: '10', claveReintento };
+  await assert.rejects(inventario.registrarApertura(p.staff, { ...apertura, soloConfirmada: true }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(inventario.registrarApertura(p.staff, { ...apertura, jornadaId: randomUUID() }),
+    { codigo: 'reintento_distinto' });
+  await assert.rejects(inventario.registrarApertura(otro.staff, { ...apertura, soloConfirmada: true }),
+    { codigo: 'apertura_no_confirmada' });
+});
+
+test('A09: revierte la tanda si PostgreSQL rechaza su segunda línea', async () => {
+  const p = await escenarioMovimientos();
+  const tanda = { tipo: 'tanda', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    insumos: [{ ...p.insumo, cantidad: '500' }], productos: [{ ...p.preparado, cantidad: '10' }] };
+  const ultimaEsProducto = p.insumo.elementoId.localeCompare(p.preparado.elementoId) < 0;
+  const saldoUltimaLinea = ultimaEsProducto ? '10' : '500';
+
+  // Fuerza un error de escritura después de guardar la primera línea y su saldo.
+  await pool.query('ALTER TABLE lineas_movimiento ADD CONSTRAINT fallo_escritura_a09 ' +
+    `CHECK (saldo_resultante <> ${saldoUltimaLinea}) NOT VALID`);
+  try {
+    await assert.rejects(movimientos.registrar(p.staff, tanda), { code: '23514', constraint: 'fallo_escritura_a09' });
+    assert.equal(await p.saldo(p.insumo.elementoId), '1000');
+    assert.equal(await p.saldo(p.preparado.elementoId), '0');
+    await assert.rejects(movimientos.registrar(p.staff, { ...tanda, soloConfirmada: true }),
+      { codigo: 'movimiento_no_confirmado' });
+  } finally {
+    await pool.query('ALTER TABLE lineas_movimiento DROP CONSTRAINT fallo_escritura_a09');
+  }
+
+  const confirmada = await movimientos.registrar(p.staff, tanda);
+  assert.equal(confirmada.lineas.length, 2);
+  assert.equal(await p.saldo(p.insumo.elementoId), '500');
+  assert.equal(await p.saldo(p.preparado.elementoId), '10');
+  assert.deepEqual(await movimientos.registrar(p.staff, tanda), confirmada);
+});

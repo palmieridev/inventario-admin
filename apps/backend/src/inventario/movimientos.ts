@@ -25,9 +25,12 @@ function esTipoMovimiento(tipo: unknown): tipo is TipoMovimiento {
     tipo === 'consumo' || tipo === 'merma' || tipo === 'ajuste';
 }
 
-function validar(entrada: unknown): { clave: string; datos: Datos } {
+function validar(entrada: unknown): { clave: string; datos: Datos; soloConfirmada: boolean } {
   const v = objeto(entrada);
-  const { tipo } = v;
+  const { tipo, soloConfirmada } = v;
+  if (soloConfirmada !== undefined && typeof soloConfirmada !== 'boolean') {
+    invalidos('Indica si solo se consultará un movimiento confirmado.');
+  }
   if (!esTipoMovimiento(tipo)) {
     invalidos('Selecciona un tipo de movimiento válido.');
   }
@@ -56,11 +59,15 @@ function validar(entrada: unknown): { clave: string; datos: Datos } {
     invalidos('Cada elemento debe aparecer una sola vez en la operación.');
   }
   detalles.sort((a, b) => a.elementoId.localeCompare(b.elementoId));
-  return { clave: identificador(v.claveReintento, 'La clave de reintento'), datos: {
-    tipo, jornadaId: identificador(v.jornadaId, 'La jornada'), motivo,
-    observacion: v.observacion === undefined ? null : texto(v.observacion, 'La observación', 500),
-    lineas: detalles,
-  } };
+  return {
+    clave: identificador(v.claveReintento, 'La clave de reintento'),
+    soloConfirmada: soloConfirmada ?? false,
+    datos: {
+      tipo, jornadaId: identificador(v.jornadaId, 'La jornada'), motivo,
+      observacion: v.observacion === undefined ? null : texto(v.observacion, 'La observación', 500),
+      lineas: detalles,
+    },
+  };
 }
 
 async function consultar(cliente: PoolClient, negocioId: string, operacionId: string): Promise<MovimientoConfirmado> {
@@ -91,7 +98,7 @@ export function crearServicioMovimientos(pool: Pool) {
     registrar(identidad: IdentidadInventario, entrada: unknown): Promise<MovimientoConfirmado> {
       return enTransaccion(pool, async (cliente) => {
         const usuario = await autorizar(cliente, identidad);
-        const { clave, datos } = validar(entrada);
+        const { clave, datos, soloConfirmada } = validar(entrada);
         if (datos.tipo === 'ajuste' && usuario.rol !== 'admin') {
           throw new ErrorInventario('acceso_denegado', 'Solo el propietario o encargado puede autorizar ajustes.');
         }
@@ -99,6 +106,9 @@ export function crearServicioMovimientos(pool: Pool) {
         const solicitud = JSON.stringify(datos);
         const previa = await recuperar(cliente, negocioId, autorId, clave, solicitud);
         if (previa) return previa;
+        if (soloConfirmada) {
+          throw new ErrorInventario('movimiento_no_confirmado', 'Todavía no hay un movimiento confirmado con esta clave.');
+        }
         const jornada = await leerJornadaBloqueada(cliente, { negocioId, jornadaId: datos.jornadaId });
         if (!jornada) throw new ErrorInventario('no_encontrado', 'La jornada no existe en el negocio.');
         const operacion = await registrarOperacion(cliente, {

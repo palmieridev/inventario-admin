@@ -31,6 +31,7 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   jornada_cerrada: 409,
   apertura_existente: 409,
   apertura_no_confirmada: 409,
+  movimiento_no_confirmado: 409,
   reintento_distinto: 409,
   conteo_requerido: 409,
   saldo_insuficiente: 409,
