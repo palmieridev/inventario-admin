@@ -30,6 +30,11 @@ const causas: Record<CausaMerma, string> = {
 
 const motivosSalida = ['Venta', 'Muestra', 'Regalo', 'Otra salida'];
 const motivosConsumo = ['Consumo del personal', 'Uso en el puesto', 'Otro consumo'];
+const rechazosDefinitivos = new Set([
+  'datos_invalidos', 'acceso_denegado', 'no_encontrado', 'reintento_distinto', 'jornada_cerrada',
+  'jornada_no_iniciada', 'elemento_inactivo', 'conteo_requerido', 'saldo_cambiado', 'saldo_insuficiente',
+  'saldo_excedido',
+]);
 
 type Captura = keyof typeof opciones;
 type Detalles = Record<string, { nombre: string; simbolo: string }>;
@@ -51,8 +56,41 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
   const seleccion = parametros.get('tipo');
   const preseleccion = parametros.get('elemento');
   const claveLocal = ['movimiento', sesion.negocioId, sesion.id].join(':');
-  const guardado = sessionStorage.getItem(claveLocal);
-  let pendiente = guardado ? JSON.parse(guardado) as Intento : undefined;
+  const guardado = await leerPendiente();
+  let pendiente = guardado;
+  let guardando = false;
+
+  function conBloqueo<T>(operacion: () => T): Promise<T> {
+    return navigator.locks.request(claveLocal, operacion);
+  }
+
+  function leerLocal(): Intento | undefined {
+    const datos = localStorage.getItem(claveLocal);
+    return datos ? JSON.parse(datos) as Intento : undefined;
+  }
+
+  async function leerPendiente(): Promise<Intento | undefined> {
+    const anterior = sessionStorage.getItem(claveLocal);
+    if (!anterior) return leerLocal();
+    return conBloqueo(() => {
+      const previo = JSON.parse(anterior) as Intento;
+      const local = leerLocal();
+      if (!local) localStorage.setItem(claveLocal, anterior);
+      if (!local || local.solicitud.claveReintento === previo.solicitud.claveReintento) {
+        sessionStorage.removeItem(claveLocal);
+      }
+      return local ?? previo;
+    });
+  }
+
+  function eliminarIntento(intento: Intento): Promise<void> {
+    return conBloqueo(() => {
+      // Otra pestaña pudo resolver este intento y guardar uno nuevo.
+      if (leerLocal()?.solicitud.claveReintento === intento.solicitud.claveReintento) {
+        localStorage.removeItem(claveLocal);
+      }
+    });
+  }
   const tipo = pendiente?.solicitud.tipo ?? seleccion;
   const titulo = document.querySelector<HTMLElement>('#titulo-movimiento')!;
   const aviso = document.querySelector<HTMLElement>('#aviso-movimiento')!;
@@ -99,7 +137,7 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
 
     try {
       const resultado = await confirmar(intento.solicitud, esReintento);
-      sessionStorage.removeItem(claveLocal);
+      await eliminarIntento(intento);
       pendiente = undefined;
       mostrarAviso(aviso, '');
       mostrarConfirmacion(resultado, intento.detalles);
@@ -108,8 +146,8 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
       if (revisarSesion(fallo)) return;
 
       mostrarAviso(error, mensajeError(fallo));
-      if (fallo instanceof ErrorApi && fallo.estado >= 400 && fallo.estado < 500) {
-        sessionStorage.removeItem(claveLocal);
+      const rechazo = fallo instanceof ErrorApi && fallo.estado !== 408 && rechazosDefinitivos.has(fallo.codigo);
+      if (rechazo && await eliminarIntento(intento).then(() => true, () => false)) {
         pendiente = undefined;
         mostrarAviso(aviso, '');
         const recargar = Boolean(guardado) || ['jornada_cerrada', 'jornada_no_iniciada', 'saldo_cambiado'].includes(fallo.codigo);
@@ -295,9 +333,9 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
     return selector;
   }
 
-  formulario.addEventListener('submit', (evento) => {
+  formulario.addEventListener('submit', async (evento) => {
     evento.preventDefault();
-    if (boton.disabled || pendiente || enviando) return;
+    if (boton.disabled || pendiente || guardando || enviando) return;
     limpiarFormulario(formulario);
     mostrarAviso(error, '');
     const detalles: Detalles = {};
@@ -342,12 +380,25 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
     }
 
     const intento = { solicitud, detalles };
+    guardando = true;
     try {
-      sessionStorage.setItem(claveLocal, JSON.stringify(intento));
+      const guardado = await conBloqueo(() => {
+        if (leerLocal()) return false;
+        localStorage.setItem(claveLocal, JSON.stringify(intento));
+        return true;
+      });
+      if (!guardado) {
+        mostrarAviso(error, 'Hay un movimiento pendiente de esta cuenta. Vuelve a abrir la captura para revisarlo.');
+        volver.hidden = false;
+        error.focus();
+        return;
+      }
     } catch {
       mostrarAviso(error, 'No se pudo conservar la captura para un reintento. Revisa el almacenamiento del navegador.');
       error.focus();
       return;
+    } finally {
+      guardando = false;
     }
     pendiente = intento;
     void enviar(false);

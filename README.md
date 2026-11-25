@@ -88,7 +88,7 @@ Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga 
 
 1. En **Inventario**, selecciona **Registrar movimiento**. Desde un elemento con conteo inicial registrado y una jornada abierta, el acceso del detalle conserva el elemento seleccionado.
 2. Elige el tipo de movimiento y captura la cantidad en la unidad de control. En una tanda, agrega los productos obtenidos y los insumos utilizados que se controlan. Para salidas, consumos y mermas, selecciona el motivo o la causa.
-3. Confirma la captura. La interfaz muestra los saldos de la operación confirmada o el error del servidor. Si se interrumpe la respuesta, abre **Registrar movimiento** en la misma pestaña para verificar y reintentar la misma captura.
+3. Confirma la captura. La interfaz muestra los saldos de la operación confirmada o el error del servidor. Si se interrumpe la respuesta, abre **Registrar movimiento** en el mismo navegador con la misma cuenta para verificar y reintentar la captura, incluso si se cerró la pestaña.
 4. Como propietario o encargado, elige **Corregir existencia** para consultar el saldo registrado y confirmar el conteo físico con un motivo. La confirmación muestra el saldo anterior, el conteo y el ajuste aplicado.
 
 ### Comandos del monorepositorio
