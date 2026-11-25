@@ -43,7 +43,14 @@ import InventarioLayout from '../../layouts/InventarioLayout.astro';
       <button type="submit">Confirmar movimiento</button>
     </form>
     <p id="error-movimiento" class="error" role="alert" tabindex="-1" hidden></p>
-    <button id="reintentar-movimiento" type="button" hidden>Reintentar confirmación</button>
+    <section id="movimiento-pendiente" class="panel flujo" aria-labelledby="titulo-pendiente" hidden>
+      <h2 id="titulo-pendiente">Captura pendiente</h2>
+      <ul id="lineas-pendientes"></ul>
+      <p id="motivo-pendiente" class="texto-secundario" hidden></p>
+      <p id="observacion-pendiente" class="texto-secundario" hidden></p>
+      <button id="reintentar-movimiento" type="button">Consultar confirmación</button>
+      <button id="reenviar-movimiento" type="button" hidden>Reenviar esta captura</button>
+    </section>
     <section id="movimiento-confirmado" class="panel flujo" tabindex="-1" hidden>
       <h2 id="titulo-confirmacion"></h2>
       <p id="fecha-movimiento" class="texto-secundario"></p>
@@ -99,5 +106,5 @@ import InventarioLayout from '../../layouts/InventarioLayout.astro';
   #insumos-movimiento legend { padding-inline-end: 0.5rem; }
   .linea + .linea { border-top: 1px solid var(--borde); padding-top: 0.75rem; }
   .agregar, .quitar { justify-self: start; }
-  #saldos-confirmados { margin: 0; padding-inline-start: 1.25rem; gap: 0.5rem; overflow-wrap: anywhere; }
+  #lineas-pendientes, #saldos-confirmados { margin: 0; padding-inline-start: 1.25rem; gap: 0.5rem; overflow-wrap: anywhere; }
 </style>

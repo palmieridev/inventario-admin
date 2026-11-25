@@ -97,7 +97,9 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
   const error = document.querySelector<HTMLElement>('#error-movimiento')!;
   const formulario = document.querySelector<HTMLFormElement>('#formulario-movimiento')!;
   const boton = formulario.querySelector<HTMLButtonElement>('button[type=submit]')!;
+  const panelPendiente = document.querySelector<HTMLElement>('#movimiento-pendiente')!;
   const reintentar = document.querySelector<HTMLButtonElement>('#reintentar-movimiento')!;
+  const reenviar = document.querySelector<HTMLButtonElement>('#reenviar-movimiento')!;
   const nuevo = document.querySelector<HTMLAnchorElement>('#nuevo-movimiento')!;
   const volver = document.querySelector<HTMLAnchorElement>('#volver-a-capturar')!;
 
@@ -126,17 +128,28 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
   volver.href = rutaCaptura(tipo, preseleccion);
   let enviando = false;
 
-  async function enviar(esReintento: boolean): Promise<void> {
+  function mostrarPendiente(intento: Intento, sinConfirmacion = false): void {
+    describirIntento(intento);
+    panelPendiente.hidden = false;
+    reintentar.hidden = sinConfirmacion;
+    reenviar.hidden = !sinConfirmacion;
+    mostrarAviso(aviso, sinConfirmacion
+      ? 'El servidor aún no encuentra esta captura. Revisa los datos antes de reenviarla.'
+      : 'La confirmación está pendiente. Consulta el resultado de esta captura.');
+  }
+
+  async function enviar(soloConsultar: boolean): Promise<void> {
     if (enviando || !pendiente) return;
     const intento = pendiente;
     enviando = true;
     formulario.hidden = true;
-    reintentar.hidden = true;
+    panelPendiente.hidden = true;
     mostrarAviso(error, '');
     mostrarAviso(aviso, 'Esperando confirmación del servidor…');
 
     try {
-      const resultado = await confirmar(intento.solicitud, esReintento);
+      const solicitud = soloConsultar ? { ...intento.solicitud, soloConfirmada: true } : intento.solicitud;
+      const resultado = await solicitar<MovimientoConfirmado>(rutaApi, 'POST', solicitud);
       await eliminarIntento(intento);
       pendiente = undefined;
       mostrarAviso(aviso, '');
@@ -144,6 +157,11 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
       nuevo.hidden = false;
     } catch (fallo) {
       if (revisarSesion(fallo)) return;
+      if (soloConsultar && fallo instanceof ErrorApi && fallo.codigo === 'movimiento_no_confirmado') {
+        mostrarPendiente(intento, true);
+        reenviar.focus();
+        return;
+      }
 
       mostrarAviso(error, mensajeError(fallo));
       const rechazo = fallo instanceof ErrorApi && fallo.estado !== 408 && rechazosDefinitivos.has(fallo.codigo);
@@ -154,8 +172,7 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
         volver.hidden = !recargar;
         formulario.hidden = recargar;
       } else {
-        mostrarAviso(aviso, 'La confirmación está pendiente. Reintenta para verificar el mismo movimiento.');
-        reintentar.hidden = false;
+        mostrarPendiente(intento);
       }
       error.focus();
     } finally {
@@ -164,9 +181,9 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
   }
 
   reintentar.addEventListener('click', () => void enviar(true));
+  reenviar.addEventListener('click', () => void enviar(false));
   if (pendiente) {
-    mostrarAviso(aviso, 'La confirmación está pendiente. Reintenta para verificar el mismo movimiento.');
-    reintentar.hidden = false;
+    mostrarPendiente(pendiente);
     return;
   }
 
@@ -436,15 +453,30 @@ function leerLineas(
   return lineas;
 }
 
-async function confirmar(solicitud: RegistroMovimiento, esReintento: boolean): Promise<MovimientoConfirmado> {
-  if (esReintento) {
-    try {
-      return await solicitar(rutaApi, 'POST', { ...solicitud, soloConfirmada: true });
-    } catch (fallo) {
-      if (!(fallo instanceof ErrorApi) || fallo.codigo !== 'movimiento_no_confirmado') throw fallo;
+function describirIntento({ solicitud, detalles }: Intento): void {
+  const lista = document.querySelector<HTMLElement>('#lineas-pendientes')!;
+  const motivo = document.querySelector<HTMLElement>('#motivo-pendiente')!;
+  const observacion = document.querySelector<HTMLElement>('#observacion-pendiente')!;
+  lista.replaceChildren();
+
+  function agregar(lineas: LineaMovimiento[], prefijo = '') {
+    for (const linea of lineas) {
+      const { nombre, simbolo } = detalles[linea.elementoId]!;
+      const renglon = document.createElement('li');
+      renglon.textContent = prefijo + nombre + ' · ' + linea.cantidad + ' ' + simbolo;
+      lista.append(renglon);
     }
   }
-  return solicitar(rutaApi, 'POST', solicitud);
+
+  if (solicitud.tipo === 'tanda') {
+    agregar(solicitud.productos, 'Producto obtenido: ');
+    agregar(solicitud.insumos, 'Insumo utilizado: ');
+  } else {
+    agregar(solicitud.lineas);
+  }
+  const razon = solicitud.tipo === 'merma' ? causas[solicitud.motivo] : 'motivo' in solicitud ? solicitud.motivo : '';
+  mostrarAviso(motivo, razon ? 'Motivo: ' + razon : '');
+  mostrarAviso(observacion, solicitud.observacion ? 'Observación: ' + solicitud.observacion : '');
 }
 
 function mostrarConfirmacion(resultado: MovimientoConfirmado, detalles: Detalles): void {
