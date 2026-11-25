@@ -1,0 +1,97 @@
+---
+import InventarioLayout from '../../layouts/InventarioLayout.astro';
+---
+
+<InventarioLayout title="Registrar movimiento">
+  <section class="flujo" aria-labelledby="titulo-movimiento">
+    <a class="volver" href="/inventario/">Volver al inventario</a>
+    <h1 id="titulo-movimiento">Registrar movimiento</h1>
+    <nav id="tipos-movimiento" class="panel flujo" aria-label="Tipo de movimiento" hidden></nav>
+    <p id="aviso-movimiento" class="aviso" role="status" hidden></p>
+    <form id="formulario-movimiento" class="panel formulario" method="post" hidden>
+      <div id="selector-turno" class="campo">
+        <label for="jornada-movimiento">Jornada</label>
+        <select id="jornada-movimiento" required></select>
+      </div>
+      <p id="turno-movimiento" class="texto-secundario" hidden></p>
+      <fieldset id="productos-movimiento">
+        <legend id="leyenda-productos">Elemento y cantidad</legend>
+        <div class="flujo lineas"></div>
+        <button type="button" class="secundario agregar" hidden>Agregar producto obtenido</button>
+      </fieldset>
+      <fieldset id="insumos-movimiento" hidden>
+        <legend>Insumos utilizados</legend>
+        <p class="texto-secundario">Agrega los insumos bajo control que se usaron en esta tanda.</p>
+        <div class="flujo lineas"></div>
+        <button type="button" class="secundario agregar">Agregar insumo utilizado</button>
+      </fieldset>
+      <div id="campo-motivo" class="campo" hidden>
+        <label for="motivo">Motivo</label>
+        <select id="motivo"></select>
+      </div>
+      <div id="campo-observacion" class="campo" hidden>
+        <label for="observacion">Observación (opcional)</label>
+        <input id="observacion" maxlength="500" aria-describedby="error-observacion" />
+        <p id="error-observacion" class="error" role="alert" hidden></p>
+      </div>
+      <button type="submit">Confirmar movimiento</button>
+    </form>
+    <p id="error-movimiento" class="error" role="alert" tabindex="-1" hidden></p>
+    <button id="reintentar-movimiento" type="button" hidden>Reintentar confirmación</button>
+    <section id="movimiento-confirmado" class="panel flujo" tabindex="-1" hidden>
+      <h2 id="titulo-confirmacion"></h2>
+      <p id="fecha-movimiento" class="texto-secundario"></p>
+      <ul id="saldos-confirmados" class="flujo"></ul>
+    </section>
+    <a id="nuevo-movimiento" class="boton secundario" href="/inventario/movimientos/" hidden>Registrar otro movimiento</a>
+    <a id="volver-a-capturar" class="boton secundario" hidden>Volver a la captura</a>
+    <template id="linea-movimiento">
+      <div class="linea flujo">
+        <div class="campo">
+          <label class="etiqueta-elemento">Elemento</label>
+          <select class="elemento" required></select>
+          <p class="saldo texto-secundario" role="status" hidden></p>
+          <p class="error error-elemento" role="alert" hidden></p>
+        </div>
+        <div class="campo">
+          <label class="etiqueta-cantidad">Cantidad</label>
+          <input class="cantidad" required maxlength="19" autocomplete="off" />
+          <p class="error error-cantidad" role="alert" hidden></p>
+        </div>
+        <button type="button" class="secundario quitar" hidden>Quitar línea</button>
+      </div>
+    </template>
+  </section>
+</InventarioLayout>
+
+<script>
+  import { iniciarMovimientos } from '../../lib/movimientos';
+  import { conSesion } from '../../lib/sesion';
+
+  void conSesion(iniciarMovimientos);
+</script>
+
+<style>
+  #tipos-movimiento { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+
+  fieldset {
+    display: grid;
+    gap: 0.75rem;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    padding: 0;
+    margin-bottom: 0.5rem;
+    font-weight: 750;
+  }
+
+  #insumos-movimiento { border-top: 1px solid var(--borde); }
+  #insumos-movimiento legend { padding-inline-end: 0.5rem; }
+  .linea + .linea { border-top: 1px solid var(--borde); padding-top: 0.75rem; }
+  .agregar, .quitar { justify-self: start; }
+  #saldos-confirmados { margin: 0; padding-inline-start: 1.25rem; gap: 0.5rem; overflow-wrap: anywhere; }
+</style>

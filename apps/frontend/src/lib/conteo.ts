@@ -1,27 +1,10 @@
 import type {
-  AperturaConfirmada, CuentaSesion, DatosUnidad, Existencia, JornadaAbierta, RegistroApertura,
+  AperturaConfirmada, CuentaSesion, Existencia, JornadaAbierta, RegistroApertura,
 } from '@inventario/contracts';
 import { ErrorApi, solicitar } from './api';
+import { fechaJornada, validarCantidad } from './cantidades';
 import { cargarCatalogo, nombreElemento } from './catalogo';
 import { mensajeError, mostrarAviso, revisarSesion } from './sesion';
-
-function validarCantidad(valor: string, unidad: DatosUnidad): string {
-  const cantidad = valor.trim().replace(',', '.');
-  if (!/^\d{1,12}(?:\.\d{1,6})?$/.test(cantidad)) {
-    throw new Error('Escribe una cantidad de cero o más, con hasta doce cifras enteras y seis decimales.');
-  }
-  const decimales = cantidad.split('.')[1]?.replace(/0+$/, '').length ?? 0;
-  if (decimales > unidad.decimales) {
-    throw new Error(unidad.decimales === 0
-      ? 'Escribe una cantidad entera para esta unidad.'
-      : 'Esta unidad admite hasta ' + unidad.decimales + ' decimales.');
-  }
-  return cantidad;
-}
-
-const fechaJornada = new Intl.DateTimeFormat('es-MX', {
-  dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Mexico_City',
-});
 
 export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
   const id = new URLSearchParams(location.search).get('elemento');
@@ -88,6 +71,11 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
   document.querySelector<HTMLElement>('#unidad-conteo')!.textContent =
     'Unidad de control: ' + unidad.nombre + ' (' + unidad.simbolo + ')';
   detalle.hidden = false;
+  if (elemento?.activo && existencia && jornadas.length) {
+    const movimientos = document.querySelector<HTMLAnchorElement>('#movimientos-elemento')!;
+    movimientos.href = '/inventario/movimientos/?' + new URLSearchParams({ elemento: elemento.id });
+    movimientos.hidden = false;
+  }
 
   if (!pendiente && (!elemento?.activo || existencia || jornadas.length === 0)) {
     if (!elemento?.activo) mostrarAviso(estado, 'El elemento está inactivo.');
