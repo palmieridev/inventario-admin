@@ -6,7 +6,7 @@ El proyecto busca apoyar el registro interno de existencias durante la preparaci
 
 ## Estado del proyecto
 
-El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. A07 incorpora las pantallas móviles de acceso, inventario, conteo inicial y administración del catálogo y del personal. A08 agrega la API de compras, tandas, salidas, consumos, mermas y ajustes autorizados, con confirmación atómica y reintentos sin duplicados. Los formularios de movimientos corresponden a A10. Véase el [contrato de la API](apps/backend/README.md#movimientos-producción-y-persistencia-a08a09).
+El repositorio contiene el frontend en Astro, la API en TypeScript y Fastify, los contratos compartidos y el entorno de PostgreSQL para desarrollo local. A05 incorpora el catálogo y el conteo inicial. A06 expone esas operaciones en la API, con sesiones y permisos por negocio, e incorpora el alta y la revocación de personal. A07 incorpora las pantallas móviles de acceso, inventario, conteo inicial y administración del catálogo y del personal. A08 agrega la API de compras, tandas, salidas, consumos, mermas y ajustes autorizados, con confirmación atómica y reintentos sin duplicados. A10 conecta los formularios móviles a esa API. Véase el [contrato de la API](apps/backend/README.md#movimientos-producción-y-persistencia-a08a09).
 
 ## Estructura
 
@@ -83,6 +83,13 @@ Las cuatro cuentas se crean con la contraseña introducida. Al repetir la carga 
 2. Busca un elemento por nombre o variante, o filtra por categoría. Al seleccionarlo se muestran su unidad de control y su existencia si ya tiene un conteo.
 3. Con una jornada abierta, registra el conteo inicial de un elemento sin existencia. Un conteo de cero queda confirmado con su unidad. Si la confirmación se interrumpe, recarga la pantalla de conteo en la misma pestaña. Puedes recuperar el resultado aunque el elemento se haya desactivado.
 4. Como propietario o encargado, usa **Nuevo elemento**, **Editar** o **Unidades** para administrar el catálogo. **Personal autorizado** permite dar de alta, habilitar y revocar cuentas. El personal que atiende clientes puede consultar y contar dentro de su negocio.
+
+### Recorrido de A10
+
+1. En **Inventario**, selecciona **Registrar movimiento**. Desde un elemento con conteo inicial registrado y una jornada abierta, el acceso del detalle conserva el elemento seleccionado.
+2. Elige el tipo de movimiento y captura la cantidad en la unidad de control. En una tanda, agrega los productos obtenidos y los insumos utilizados que se controlan. Para salidas, consumos y mermas, selecciona el motivo o la causa.
+3. Confirma la captura. La interfaz muestra los saldos de la operación confirmada o el error del servidor. Si se interrumpe la respuesta, abre **Registrar movimiento** en el mismo navegador con la misma cuenta para ver la captura pendiente y consultar su confirmación, incluso si se cerró la pestaña. Si el servidor aún no encuentra el movimiento, la interfaz ofrece reenviar los mismos datos.
+4. Como propietario o encargado, elige **Corregir existencia** para consultar el saldo registrado y confirmar el conteo físico con un motivo. La confirmación muestra el saldo anterior, el conteo y el ajuste aplicado.
 
 ### Comandos del monorepositorio
 

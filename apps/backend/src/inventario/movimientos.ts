@@ -11,7 +11,11 @@ import {
 import { enTransaccion } from '../db/transaccion.js';
 import { cantidadDecimal, ErrorInventario, identificador, invalidos, objeto, texto } from './validacion.js';
 
-type Linea = LineaMovimiento & { efecto: 'sumar' | 'restar' | 'contar'; categoria?: 'insumo' | 'preparado' };
+type Linea = LineaMovimiento & {
+  efecto: 'sumar' | 'restar' | 'contar';
+  categoria?: 'insumo' | 'preparado';
+  versionExistencia?: string;
+};
 interface Datos {
   tipo: TipoMovimiento;
   jornadaId: string;
@@ -47,9 +51,12 @@ function validar(entrada: unknown): { clave: string; datos: Datos; soloConfirmad
       const l = objeto(entrada);
       const cantidad = cantidadDecimal(l.cantidad);
       if (cantidad === '0' && efecto !== 'contar') invalidos('La cantidad debe ser mayor que cero.');
+      // Las solicitudes antiguas sin versión siguen sirviendo para recuperar un ajuste previo.
+      const versionExistencia = efecto === 'contar' && l.versionExistencia !== undefined
+        ? identificador(l.versionExistencia, 'La versión del saldo') : undefined;
       return { elementoId: identificador(l.elementoId, 'El elemento'),
         unidadId: identificador(l.unidadId, 'La unidad'), cantidad, efecto,
-        ...(categoria && { categoria }) };
+        ...(categoria && { categoria }), ...(versionExistencia && { versionExistencia }) };
     });
   }
   const detalles = tipo === 'tanda'
@@ -143,6 +150,9 @@ export function crearServicioMovimientos(pool: Pool) {
             negocioId, elementoId: linea.elementoId, cantidad: linea.cantidad, efecto: linea.efecto,
           });
           if (!saldo) throw new ErrorInventario('conteo_requerido', 'Registra primero el conteo inicial del elemento.');
+          if (linea.efecto === 'contar' && linea.versionExistencia !== saldo.version) {
+            throw new ErrorInventario('saldo_cambiado', 'Vuelve a consultar el saldo y verifica el conteo físico antes de corregir.');
+          }
           if (saldo.insuficiente) throw new ErrorInventario('saldo_insuficiente', 'La cantidad supera la existencia. Revisa el saldo y la captura.');
           if (saldo.excedido) throw new ErrorInventario('saldo_excedido', 'El saldo resultante excede el límite de doce cifras enteras.');
           saldos.push({ linea, anterior: saldo.anterior, siguiente: saldo.siguiente });

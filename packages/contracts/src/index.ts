@@ -92,6 +92,7 @@ export interface Existencia {
   unidadId: string;
   cantidad: string;
   actualizadaEn: string;
+  version: string;
 }
 
 export type TipoMovimiento = 'compra' | 'tanda' | 'salida' | 'consumo' | 'merma' | 'ajuste';
@@ -114,7 +115,8 @@ interface BaseMovimiento {
 
 export type RegistroMovimiento = BaseMovimiento & (
   | { tipo: 'compra'; lineas: LineaMovimiento[] }
-  | { tipo: 'salida' | 'consumo' | 'ajuste'; motivo: string; lineas: LineaMovimiento[] }
+  | { tipo: 'salida' | 'consumo'; motivo: string; lineas: LineaMovimiento[] }
+  | { tipo: 'ajuste'; motivo: string; lineas: (LineaMovimiento & { versionExistencia: string })[] }
   | { tipo: 'merma'; motivo: CausaMerma; lineas: LineaMovimiento[] }
   | { tipo: 'tanda'; insumos: LineaMovimiento[]; productos: LineaMovimiento[] }
 );

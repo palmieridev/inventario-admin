@@ -140,7 +140,7 @@ export async function insertarMovimiento(client: Client, args: InsertarMovimient
 }
 
 export const calcularSaldoBloqueadoQuery = `-- name: CalcularSaldoBloqueado :one
-SELECT e.cantidad::text AS anterior, c.calculo::text AS siguiente,
+SELECT e.cantidad::text AS anterior, c.calculo::text AS siguiente, e.version,
        (c.calculo < 0)::boolean AS insuficiente, (c.calculo >= 1000000000000)::boolean AS excedido
 FROM existencias_inventario AS e
 CROSS JOIN LATERAL (
@@ -163,6 +163,7 @@ export interface CalcularSaldoBloqueadoArgs {
 export interface CalcularSaldoBloqueadoRow {
     anterior: string;
     siguiente: string;
+    version: string;
     insuficiente: boolean;
     excedido: boolean;
 }
@@ -180,8 +181,9 @@ export async function calcularSaldoBloqueado(client: Client, args: CalcularSaldo
     return {
         anterior: row[0],
         siguiente: row[1],
-        insuficiente: row[2],
-        excedido: row[3]
+        version: row[2],
+        insuficiente: row[3],
+        excedido: row[4]
     };
 }
 
@@ -227,7 +229,7 @@ export async function insertarLineaMovimiento(client: Client, args: InsertarLine
 
 export const actualizarSaldoQuery = `-- name: ActualizarSaldo :exec
 UPDATE existencias_inventario AS e
-SET cantidad = $1, actualizada_en = o.registrada_en
+SET cantidad = $1, actualizada_en = o.registrada_en, version = o.id
 FROM operaciones_inventario AS o
 WHERE e.negocio_id = $2 AND e.elemento_id = $3
   AND o.negocio_id = e.negocio_id AND o.id = $4`;
