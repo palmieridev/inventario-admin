@@ -71,9 +71,11 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
   document.querySelector<HTMLElement>('#unidad-conteo')!.textContent =
     'Unidad de control: ' + unidad.nombre + ' (' + unidad.simbolo + ')';
   detalle.hidden = false;
-  if (elemento?.activo && existencia && jornadas.length) {
+  if (elemento?.activo && existencia && jornadas.length) mostrarAccesoMovimientos(elemento.id);
+
+  function mostrarAccesoMovimientos(elementoId: string): void {
     const movimientos = document.querySelector<HTMLAnchorElement>('#movimientos-elemento')!;
-    movimientos.href = '/inventario/movimientos/?' + new URLSearchParams({ elemento: elemento.id });
+    movimientos.href = '/inventario/movimientos/?' + new URLSearchParams({ elemento: elementoId });
     movimientos.hidden = false;
   }
 
@@ -148,6 +150,7 @@ export async function iniciarConteo(sesion: CuentaSesion): Promise<void> {
       formulario.hidden = true;
       mostrarAviso(estado, '');
       mostrarAviso(confirmacion, 'Conteo confirmado de ' + titulo + ': ' + apertura.cantidad + ' ' + unidad.simbolo + '.');
+      mostrarAccesoMovimientos(apertura.elementoId);
       confirmacion.focus();
     } catch (error) {
       if (revisarSesion(error)) return;
