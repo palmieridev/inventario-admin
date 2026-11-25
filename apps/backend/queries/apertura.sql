@@ -30,13 +30,13 @@ ON CONFLICT (negocio_id, elemento_id) DO NOTHING
 RETURNING elemento_id;
 
 -- name: InsertarExistencia :exec
-INSERT INTO existencias_inventario (negocio_id, elemento_id, cantidad, actualizada_en)
-SELECT sqlc.arg(negocio_id), sqlc.arg(elemento_id)::uuid, sqlc.arg(cantidad)::numeric, registrada_en
+INSERT INTO existencias_inventario (negocio_id, elemento_id, cantidad, actualizada_en, version)
+SELECT sqlc.arg(negocio_id), sqlc.arg(elemento_id)::uuid, sqlc.arg(cantidad)::numeric, registrada_en, id
 FROM operaciones_inventario
 WHERE negocio_id = sqlc.arg(negocio_id) AND id = sqlc.arg(operacion_id);
 
 -- name: BuscarExistencia :one
-SELECT e.id AS elemento_id, e.unidad_id, s.cantidad, s.actualizada_en
+SELECT e.id AS elemento_id, e.unidad_id, s.cantidad, s.actualizada_en, s.version
 FROM elementos_inventario AS e
 LEFT JOIN existencias_inventario AS s ON s.negocio_id = e.negocio_id AND s.elemento_id = e.id
 WHERE e.negocio_id = sqlc.arg(negocio_id) AND e.id = sqlc.arg(elemento_id)

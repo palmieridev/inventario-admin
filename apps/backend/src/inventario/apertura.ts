@@ -122,8 +122,9 @@ export function crearServicioApertura(pool: Pool) {
           incluirInactivos: usuario.rol === 'admin',
         });
         if (!existencia) throw new ErrorInventario('no_encontrado', 'El elemento no existe en el negocio.');
-        const { cantidad, actualizadaEn } = existencia;
-        return cantidad === null || actualizadaEn === null ? null : { ...existencia, cantidad, actualizadaEn };
+        const { cantidad, actualizadaEn, version } = existencia;
+        return cantidad === null || actualizadaEn === null || version === null ? null :
+          { ...existencia, cantidad, actualizadaEn, version };
       });
     },
   };

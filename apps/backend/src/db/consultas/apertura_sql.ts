@@ -178,8 +178,8 @@ export async function insertarApertura(client: Client, args: InsertarAperturaArg
 }
 
 export const insertarExistenciaQuery = `-- name: InsertarExistencia :exec
-INSERT INTO existencias_inventario (negocio_id, elemento_id, cantidad, actualizada_en)
-SELECT $1, $2::uuid, $3::numeric, registrada_en
+INSERT INTO existencias_inventario (negocio_id, elemento_id, cantidad, actualizada_en, version)
+SELECT $1, $2::uuid, $3::numeric, registrada_en, id
 FROM operaciones_inventario
 WHERE negocio_id = $1 AND id = $4`;
 
@@ -199,7 +199,7 @@ export async function insertarExistencia(client: Client, args: InsertarExistenci
 }
 
 export const buscarExistenciaQuery = `-- name: BuscarExistencia :one
-SELECT e.id AS elemento_id, e.unidad_id, s.cantidad, s.actualizada_en
+SELECT e.id AS elemento_id, e.unidad_id, s.cantidad, s.actualizada_en, s.version
 FROM elementos_inventario AS e
 LEFT JOIN existencias_inventario AS s ON s.negocio_id = e.negocio_id AND s.elemento_id = e.id
 WHERE e.negocio_id = $1 AND e.id = $2
@@ -216,6 +216,7 @@ export interface BuscarExistenciaRow {
     unidadId: string;
     cantidad: string | null;
     actualizadaEn: Date | null;
+    version: string | null;
 }
 
 export async function buscarExistencia(client: Client, args: BuscarExistenciaArgs): Promise<BuscarExistenciaRow | null> {
@@ -232,6 +233,7 @@ export async function buscarExistencia(client: Client, args: BuscarExistenciaArg
         elementoId: row[0],
         unidadId: row[1],
         cantidad: row[2],
-        actualizadaEn: row[3]
+        actualizadaEn: row[3],
+        version: row[4]
     };
 }

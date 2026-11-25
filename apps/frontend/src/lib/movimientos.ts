@@ -112,7 +112,7 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
         sessionStorage.removeItem(claveLocal);
         pendiente = undefined;
         mostrarAviso(aviso, '');
-        const recargar = Boolean(guardado) || ['jornada_cerrada', 'jornada_no_iniciada'].includes(fallo.codigo);
+        const recargar = Boolean(guardado) || ['jornada_cerrada', 'jornada_no_iniciada', 'saldo_cambiado'].includes(fallo.codigo);
         volver.hidden = !recargar;
         formulario.hidden = recargar;
       } else {
@@ -171,6 +171,7 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
   }
   const observacion = formulario.querySelector<HTMLInputElement>('#observacion')!;
   let secuencia = 0;
+  let versionAjuste: string | undefined;
 
   if (tipo === 'tanda') {
     formulario.querySelector<HTMLElement>('#leyenda-productos')!.textContent = 'Productos obtenidos';
@@ -256,6 +257,7 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
       labelCantidad.textContent = unidad ? etiquetaCantidad + ' (' + unidad.simbolo + ')' : etiquetaCantidad;
       mostrarAviso(saldo, '');
       if (correccion) {
+        versionAjuste = undefined;
         cantidad.disabled = true;
         boton.disabled = true;
       }
@@ -271,7 +273,8 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
           existencia ? 'La unidad cambió. Vuelve a abrir la captura.' :
             'Sin conteo inicial. Registra el conteo desde el inventario.';
         mostrarAviso(saldo, mensaje);
-        if (correccion && saldoVigente) {
+        if (correccion && saldoVigente?.version) {
+          versionAjuste = saldoVigente.version;
           cantidad.disabled = false;
           boton.disabled = false;
         }
@@ -327,7 +330,9 @@ export async function iniciarMovimientos(sesion: CuentaSesion): Promise<void> {
           errorCampo(motivoAjuste, 'Escribe el motivo de la corrección en hasta 240 caracteres.');
           return;
         }
-        solicitud = { ...base, tipo, lineas, motivo: razon };
+        if (!versionAjuste) return;
+        const versionExistencia = versionAjuste;
+        solicitud = { ...base, tipo, lineas: lineas.map((linea) => ({ ...linea, versionExistencia })), motivo: razon };
         break;
       }
       case 'salida':

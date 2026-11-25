@@ -23,7 +23,7 @@ VALUES (sqlc.arg(negocio_id), sqlc.arg(operacion_id), sqlc.arg(solicitud)::text:
         sqlc.narg(motivo), sqlc.narg(observacion));
 
 -- name: CalcularSaldoBloqueado :one
-SELECT e.cantidad::text AS anterior, c.calculo::text AS siguiente,
+SELECT e.cantidad::text AS anterior, c.calculo::text AS siguiente, e.version,
        (c.calculo < 0)::boolean AS insuficiente, (c.calculo >= 1000000000000)::boolean AS excedido
 FROM existencias_inventario AS e
 CROSS JOIN LATERAL (
@@ -48,7 +48,7 @@ VALUES (sqlc.arg(negocio_id), sqlc.arg(operacion_id), sqlc.arg(elemento_id), sql
 
 -- name: ActualizarSaldo :exec
 UPDATE existencias_inventario AS e
-SET cantidad = sqlc.arg(cantidad), actualizada_en = o.registrada_en
+SET cantidad = sqlc.arg(cantidad), actualizada_en = o.registrada_en, version = o.id
 FROM operaciones_inventario AS o
 WHERE e.negocio_id = sqlc.arg(negocio_id) AND e.elemento_id = sqlc.arg(elemento_id)
   AND o.negocio_id = e.negocio_id AND o.id = sqlc.arg(operacion_id);

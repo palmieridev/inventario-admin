@@ -34,6 +34,7 @@ const estadosError: Record<ErrorInventario['codigo'], number> = {
   movimiento_no_confirmado: 409,
   reintento_distinto: 409,
   conteo_requerido: 409,
+  saldo_cambiado: 409,
   saldo_insuficiente: 409,
   saldo_excedido: 409,
 };

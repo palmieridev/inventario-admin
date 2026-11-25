@@ -17,6 +17,7 @@ type CodigoInventario =
   | 'movimiento_no_confirmado'
   | 'reintento_distinto'
   | 'conteo_requerido'
+  | 'saldo_cambiado'
   | 'saldo_insuficiente'
   | 'saldo_excedido';
 

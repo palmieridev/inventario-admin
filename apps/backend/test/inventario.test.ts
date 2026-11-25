@@ -367,6 +367,7 @@ test('registra una apertura por variante, incluye cero y conserva el saldo entre
   const saldoDulce = await inventario.consultarExistencia(puesto.staff, dulce.id);
   assert.deepEqual(saldoDulce, {
     elementoId: dulce.id, unidadId: pieza.id, cantidad: '0', actualizadaEn: apertura.registradaEn,
+    version: apertura.operacionId,
   });
   assert.equal(apertura.autorId, puesto.staff);
   assert.equal(apertura.jornadaId, jornadaId);
@@ -632,16 +633,57 @@ test('A08: tanda atómica, venta sin doble descuento e insumos opcionales bajo c
 
 test('A08: ajuste exclusivo de admin conserva originales, autor y conteo cero', async () => {
   const p = await escenarioMovimientos();
+  const version = async () => (await inventario.consultarExistencia(p.admin, p.bebida.elementoId))!.version;
   const datos = { tipo: 'ajuste', jornadaId: p.jornadaId, claveReintento: randomUUID(),
-    motivo: 'Diferencia en conteo físico', lineas: [{ ...p.bebida, cantidad: '8' }] };
+    motivo: 'Diferencia en conteo físico', lineas: [{ ...p.bebida, cantidad: '8', versionExistencia: await version() }] };
   await assert.rejects(movimientos.registrar(p.staff, datos), { codigo: 'acceso_denegado' });
   const ajuste = await movimientos.registrar(p.admin, datos);
   assert.equal(ajuste.autorId, p.admin);
   assert.deepEqual(ajuste.lineas[0], { ...p.bebida, saldoAnterior: '10', saldoResultante: '8', variacion: '-2' });
   assert.equal((await pool.query('SELECT cantidad::text FROM aperturas_inventario WHERE elemento_id = $1', [p.bebida.elementoId])).rows[0].cantidad, '10');
-  await movimientos.registrar(p.admin, { ...datos, claveReintento: randomUUID(), lineas: [{ ...p.bebida, cantidad: '0' }] });
+  await movimientos.registrar(p.admin, { ...datos, claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '0', versionExistencia: await version() }] });
   assert.equal(await p.saldo(p.bebida.elementoId), '0');
   assert.deepEqual(await movimientos.consultar(p.staff, ajuste.operacionId), ajuste);
+});
+
+test('A10: rechaza un conteo físico anterior a otro movimiento, aunque el saldo vuelva al mismo valor', async () => {
+  const p = await escenarioMovimientos();
+  await asignarCuenta(p.admin, 'a10.admin.ajuste');
+  const { cookie } = await iniciarSesion('a10.admin.ajuste');
+  const consultarSaldo = async () => {
+    const respuesta = await app.inject({
+      method: 'GET', url: '/api/inventario/elementos/' + p.bebida.elementoId + '/existencia', headers: { cookie },
+    });
+    assert.equal(respuesta.statusCode, 200, respuesta.body);
+    return respuesta.json().existencia;
+  };
+  const base = { jornadaId: p.jornadaId, motivo: 'Diferencia de conteo' };
+  const saldo = await consultarSaldo();
+  const ajuste = { ...base, tipo: 'ajuste', claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '7', versionExistencia: saldo.version }] };
+  const enviar = (payload: object) => app.inject({
+    method: 'POST', url: '/api/inventario/movimientos', payload, headers: { cookie },
+  });
+
+  await movimientos.registrar(p.staff, { ...base, tipo: 'salida', claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '2' }] });
+  await movimientos.registrar(p.staff, { tipo: 'compra', jornadaId: p.jornadaId, claveReintento: randomUUID(),
+    lineas: [{ ...p.bebida, cantidad: '2' }] });
+  const rechazo = await enviar(ajuste);
+  assert.equal(rechazo.statusCode, 409, rechazo.body);
+  assert.equal(rechazo.json().codigo, 'saldo_cambiado');
+  const vigente = await consultarSaldo();
+  assert.equal(vigente.cantidad, '10');
+  assert.notEqual(vigente.version, saldo.version);
+  const sinVersion = await enviar({ ...ajuste, lineas: [{ ...p.bebida, cantidad: '7' }] });
+  assert.equal(sinVersion.statusCode, 409, sinVersion.body);
+  const revisado = { ...ajuste, lineas: [{ ...ajuste.lineas[0]!, versionExistencia: vigente.version }] };
+  const confirmado = await enviar(revisado);
+  assert.equal(confirmado.statusCode, 200, confirmado.body);
+  const reintento = await enviar({ ...revisado, soloConfirmada: true });
+  assert.deepEqual(reintento.json(), confirmado.json());
+  assert.equal((await consultarSaldo()).cantidad, '7');
 });
 
 test('A08: serializa reintentos y salidas concurrentes sin perder precisión decimal', async () => {
